@@ -10,7 +10,11 @@
         "buildType": "apk"
       },
       "env": {
-        "APP_VARIANT": "parent"
+        "APP_VARIANT": "parent",
+        "EXPO_PUBLIC_SUPABASE_URL": "https://nmgvnoudmxrzqthnfxkk.supabase.co",
+        "EXPO_PUBLIC_SUPABASE_ANON_KEY": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im5tZ3Zub3VkbXhyenF0aG5meGtrIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODI3MjU4NjgsImV4cCI6MjA5ODMwMTg2OH0.rUL3_PXXbFGtAVdW-Zhw0pjvmFCaP_YZ3AljWganBaY",
+        "EXPO_PUBLIC_GPS_INTERVAL_MS": "10000",
+        "EXPO_PUBLIC_GEOFENCE_RADIUS_M": "300"
       }
     },
     "driver": {
@@ -19,7 +23,11 @@
         "buildType": "apk"
       },
       "env": {
-        "APP_VARIANT": "driver"
+        "APP_VARIANT": "driver",
+        "EXPO_PUBLIC_SUPABASE_URL": "https://nmgvnoudmxrzqthnfxkk.supabase.co",
+        "EXPO_PUBLIC_SUPABASE_ANON_KEY": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im5tZ3Zub3VkbXhyenF0aG5meGtrIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODI3MjU4NjgsImV4cCI6MjA5ODMwMTg2OH0.rUL3_PXXbFGtAVdW-Zhw0pjvmFCaP_YZ3AljWganBaY",
+        "EXPO_PUBLIC_GPS_INTERVAL_MS": "10000",
+        "EXPO_PUBLIC_GEOFENCE_RADIUS_M": "300"
       }
     },
     "production": {
@@ -27,7 +35,11 @@
         "buildType": "app-bundle"
       },
       "env": {
-        "APP_VARIANT": "parent"
+        "APP_VARIANT": "parent",
+        "EXPO_PUBLIC_SUPABASE_URL": "https://nmgvnoudmxrzqthnfxkk.supabase.co",
+        "EXPO_PUBLIC_SUPABASE_ANON_KEY": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im5tZ3Zub3VkbXhyenF0aG5meGtrIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODI3MjU4NjgsImV4cCI6MjA5ODMwMTg2OH0.rUL3_PXXbFGtAVdW-Zhw0pjvmFCaP_YZ3AljWganBaY",
+        "EXPO_PUBLIC_GPS_INTERVAL_MS": "10000",
+        "EXPO_PUBLIC_GEOFENCE_RADIUS_M": "300"
       }
     },
     "production:driver": {
@@ -35,7 +47,11 @@
         "buildType": "app-bundle"
       },
       "env": {
-        "APP_VARIANT": "driver"
+        "APP_VARIANT": "driver",
+        "EXPO_PUBLIC_SUPABASE_URL": "https://nmgvnoudmxrzqthnfxkk.supabase.co",
+        "EXPO_PUBLIC_SUPABASE_ANON_KEY": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im5tZ3Zub3VkbXhyenF0aG5meGtrIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODI3MjU4NjgsImV4cCI6MjA5ODMwMTg2OH0.rUL3_PXXbFGtAVdW-Zhw0pjvmFCaP_YZ3AljWganBaY",
+        "EXPO_PUBLIC_GPS_INTERVAL_MS": "10000",
+        "EXPO_PUBLIC_GEOFENCE_RADIUS_M": "300"
       }
     }
   }

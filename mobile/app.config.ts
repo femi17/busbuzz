@@ -19,7 +19,7 @@ const config = {
     : "./assets/icon-parent.png",
   userInterfaceStyle: "light",
   splash: {
-    image: "./assets/splash-icon.png",
+    image: IS_DRIVER ? "./assets/icon-driver.png" : "./assets/icon-parent.png",
     resizeMode: "contain",
     backgroundColor: "#0A1F44",
   },
