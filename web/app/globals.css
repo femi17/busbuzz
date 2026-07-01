@@ -1,0 +1,48 @@
+@import "tailwindcss";
+
+:root {
+  --background: #f6f7f4;
+  --foreground: #0e1b2e;
+
+  /* Ink — structure, authority, the school's voice */
+  --color-navy: #0e1b2e;
+  --color-navy-light: #1a2c47;
+
+  /* Danfo yellow — the actual color of Lagos transit, not a generic amber */
+  --color-amber: #ffc900;
+  --color-amber-dark: #e0ad00;
+
+  /* Status */
+  --color-stop: #e13e2d;
+  --color-route: #1c9d5b;
+  --color-paper: #f6f7f4;
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-navy: var(--color-navy);
+  --color-navy-light: var(--color-navy-light);
+  --color-amber: var(--color-amber);
+  --color-amber-dark: var(--color-amber-dark);
+  --color-stop: var(--color-stop);
+  --color-route: var(--color-route);
+  --color-paper: var(--color-paper);
+  --font-sans: var(--font-inter);
+  --font-display: var(--font-space-grotesk);
+  --font-mono: var(--font-plex-mono);
+}
+
+body {
+  background: var(--background);
+  color: var(--foreground);
+  font-family: var(--font-inter), Arial, Helvetica, sans-serif;
+}
+
+/* Departure-board numerals — the signature treatment for live transit data:
+   trip times, ETAs, plate numbers, stop sequence. Tabular mono, wide tracking. */
+.board-figure {
+  font-family: var(--font-plex-mono), ui-monospace, monospace;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.02em;
+}

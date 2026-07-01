@@ -1,0 +1,8 @@
+{
+  "name": "busbuzz",
+  "private": true,
+  "workspaces": [
+    "web",
+    "mobile"
+  ]
+}
