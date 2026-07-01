@@ -1,4 +1,5 @@
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
+import * as Linking from 'expo-linking';
 import { useState } from 'react';
 import {
   ActivityIndicator,
@@ -42,7 +43,10 @@ export default function EmailEntryScreen({ navigation }: Props) {
     try {
       const { error: otpError } = await supabase.auth.signInWithOtp({
         email: trimmedEmail,
-        options: { shouldCreateUser: false },
+        options: {
+          shouldCreateUser: false,
+          emailRedirectTo: Linking.createURL('auth/callback'),
+        },
       });
 
       if (otpError) {

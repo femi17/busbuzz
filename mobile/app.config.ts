@@ -12,6 +12,7 @@ const config = {
   name: IS_DRIVER ? "BusBuzz Driver" : "BusBuzz",
   slug: IS_DRIVER ? "busbuzz-driver" : "busbuzz-parent",
   owner: "femioduola",
+  scheme: IS_DRIVER ? "busbuzz-driver" : "busbuzz",
   version: "1.0.0",
   orientation: "portrait",
   icon: IS_DRIVER

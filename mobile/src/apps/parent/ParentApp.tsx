@@ -4,6 +4,7 @@ import {
   useNavigationContainerRef,
 } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
+import * as Linking from 'expo-linking';
 import * as Notifications from 'expo-notifications';
 import { useEffect, useState } from 'react';
 import { ActivityIndicator, StyleSheet, Text, View } from 'react-native';
@@ -113,6 +114,24 @@ export default function ParentApp() {
   const [onboardingInitialRoute, setOnboardingInitialRoute] =
     useState<keyof OnboardingStackParamList>('Welcome');
   const navigationRef = useNavigationContainerRef<ParentStackParamList>();
+
+  useEffect(() => {
+    async function handleDeepLink(url: string) {
+      const fragment = url.split('#')[1];
+      if (!fragment) return;
+      const params = new URLSearchParams(fragment);
+      const accessToken = params.get('access_token');
+      const refreshToken = params.get('refresh_token');
+      if (accessToken && refreshToken) {
+        await supabase.auth.setSession({ access_token: accessToken, refresh_token: refreshToken });
+      }
+    }
+
+    Linking.getInitialURL().then((url) => { if (url) handleDeepLink(url); });
+    const linkSub = Linking.addEventListener('url', ({ url }) => handleDeepLink(url));
+
+    return () => { linkSub.remove(); };
+  }, []);
 
   useEffect(() => {
     let isMounted = true;
