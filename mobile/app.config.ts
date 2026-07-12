@@ -1,9 +1,3 @@
-// TODO: Replace placeholder icons in assets/ with final designs:
-//   icon-parent.png — navy (#0A1F44) square with amber (#F5A623) bus icon
-//   icon-driver.png — navy (#0A1F44) square with amber (#F5A623) steering wheel icon
-//   adaptive-icon-parent.png — same bus icon, transparent background, centered for adaptive icon safe zone
-//   adaptive-icon-driver.png — same steering wheel icon, transparent background, centered for adaptive icon safe zone
-
 import { existsSync } from "fs";
 import { ExpoConfig, ConfigContext } from "expo/config";
 
