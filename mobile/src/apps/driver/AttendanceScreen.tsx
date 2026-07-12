@@ -76,12 +76,24 @@ export default function AttendanceScreen({ navigation, route }: Props) {
   // A BOTH route is authored in morning order (homes → school); the afternoon
   // run drives it back, so the stop sequence reverses. Dedicated AFTERNOON
   // routes keep the order the admin authored.
+  //
+  // Stops with no students riding THIS run are dropped entirely (the students
+  // list is already filtered by trip_type server-side): a morning-only
+  // student's street must not appear on the afternoon run, or the driver is
+  // forced through empty stops before the trip can end. The school endpoint
+  // (morning's last stop / afternoon's first) always stays — it's where the
+  // run itself starts or finishes.
   const sortedStops = useMemo(() => {
     const asc = [...stops].sort((a, b) => a.sequence - b.sequence);
-    return direction === 'AFTERNOON' && routeType === 'BOTH'
-      ? asc.reverse()
-      : asc;
-  }, [stops, direction, routeType]);
+    const ordered =
+      direction === 'AFTERNOON' && routeType === 'BOTH' ? asc.reverse() : asc;
+    return ordered.filter((stop, index) => {
+      const isSchoolEnd =
+        direction === 'MORNING' ? index === ordered.length - 1 : index === 0;
+      if (isSchoolEnd) return true;
+      return students.some((s) => s.stopId === stop.id || s.stopId === null);
+    });
+  }, [stops, direction, routeType, students]);
 
   const isLastStop = currentStopIndex === sortedStops.length - 1;
   const currentStop = sortedStops[currentStopIndex];

@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
-import { ArrowLeft, Upload, X, Save, RefreshCw, ArrowRight, ChevronDown, ChevronUp, UserX } from 'lucide-react';
+import { ArrowLeft, Upload, X, Save, ChevronDown, ChevronUp, UserX } from 'lucide-react';
 import { createClient } from '@/lib/supabase';
 import { loadGoogleMaps } from '@/lib/google-maps';
 
@@ -21,7 +21,14 @@ function useGoogleMaps(): boolean {
 
 /* ── types ─────────────────────────────────────────────────── */
 
-type TripType = 'ROUND_TRIP' | 'ONE_WAY';
+// Mirrors the DB's trip_type enum (and the Edit Student page's own selector)
+// — this is what the driver app actually filters students by per run
+// (.in('trip_type', [direction, 'BOTH'])). Previously this page used a local
+// ROUND_TRIP/ONE_WAY toggle that never read or wrote this column at all, so
+// every student silently kept the DB default of 'BOTH' regardless of what
+// the toggle showed — the reason morning-only students kept appearing on
+// afternoon runs.
+type TripType = 'MORNING' | 'AFTERNOON' | 'BOTH';
 type RouteOption = { id: string; name: string };
 
 type MapStudent = {
@@ -172,7 +179,7 @@ export default function StudentMapPage() {
         const supabase = createClient();
         const { data } = await supabase
           .from('students')
-          .select('id, name, class_name, pickup_address, pickup_lat, pickup_lng, student_parents(count)')
+          .select('id, name, class_name, pickup_address, pickup_lat, pickup_lng, trip_type, student_parents(count)')
           .eq('route_id', selectedRouteId)
           .eq('is_active', true);
 
@@ -183,6 +190,7 @@ export default function StudentMapPage() {
           pickup_address: string | null;
           pickup_lat: number | null;
           pickup_lng: number | null;
+          trip_type: TripType;
           student_parents: { count: number }[];
         }>;
 
@@ -233,7 +241,7 @@ export default function StudentMapPage() {
             lat,
             lng,
             routeId: selectedRouteId,
-            tripType: 'ROUND_TRIP',
+            tripType: s.trip_type ?? 'BOTH',
             isNew: false,
             saved: !needsAttention,
             needsAttention,
@@ -362,7 +370,6 @@ export default function StudentMapPage() {
 
     students.forEach(student => {
       const isSelected = student.id === selectedId;
-      const isTwoWay = student.tripType === 'ROUND_TRIP';
       const isNew = student.isNew;
 
       const pinIcon = (selected: boolean, newStudent: boolean, needsAttention: boolean) => ({
@@ -438,7 +445,7 @@ export default function StudentMapPage() {
         address: draftAddress.trim(),
         ...coords,
         routeId: selectedRouteId,
-        tripType: 'ROUND_TRIP',
+        tripType: 'BOTH',
         isNew: true,
         saved: false,
         needsAttention: false,
@@ -492,7 +499,7 @@ export default function StudentMapPage() {
             address: parsed[i].address,
             ...coords,
             routeId: parsed[i].routeId,
-            tripType: 'ROUND_TRIP',
+            tripType: 'BOTH',
             isNew: true,
             saved: false,
             needsAttention: false,
@@ -550,6 +557,7 @@ export default function StudentMapPage() {
             pickup_lng: s.lng,
             route_id: s.routeId || null,
             class_name: s.className || 'TBD',
+            trip_type: s.tripType,
           })
           .eq('id', s.id);
         if (error) { setSaveError(error.message); return; }
@@ -564,6 +572,7 @@ export default function StudentMapPage() {
           pickup_lat: s.lat,
           pickup_lng: s.lng,
           route_id: s.routeId || null,
+          trip_type: s.tripType,
         }));
         const { error } = await supabase.from('students').insert(rows);
         if (error) { setSaveError(error.message); return; }
@@ -851,30 +860,25 @@ export default function StudentMapPage() {
                         )}
                       </div>
 
-                      {isSelected && student.isNew && (
-                        <div className="px-3 pb-2.5 flex gap-1.5" onClick={e => e.stopPropagation()}>
-                          <button
-                            type="button"
-                            onClick={() => setTripType(student.id, 'ROUND_TRIP')}
-                            className={`flex-1 flex items-center justify-center gap-1 rounded-[var(--radius-btn)] py-1.5 text-[11px] font-semibold border transition-all duration-100 ${
-                              student.tripType === 'ROUND_TRIP'
-                                ? 'bg-amber text-navy border-amber'
-                                : 'border-rule text-sub hover:text-ink hover:border-amber'
-                            }`}
-                          >
-                            <RefreshCw size={10} /> Round Trip
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => setTripType(student.id, 'ONE_WAY')}
-                            className={`flex-1 flex items-center justify-center gap-1 rounded-[var(--radius-btn)] py-1.5 text-[11px] font-semibold border transition-all duration-100 ${
-                              student.tripType === 'ONE_WAY'
-                                ? 'bg-navy text-white border-navy'
-                                : 'border-rule text-sub hover:text-ink hover:border-navy'
-                            }`}
-                          >
-                            <ArrowRight size={10} /> One Way
-                          </button>
+                      {isSelected && (
+                        <div className="px-3 pb-2.5 flex flex-col gap-1" onClick={e => e.stopPropagation()}>
+                          <p className="text-[10px] text-sub">Rides this route:</p>
+                          <div className="flex gap-1.5">
+                            {(['BOTH', 'MORNING', 'AFTERNOON'] as const).map(t => (
+                              <button
+                                key={t}
+                                type="button"
+                                onClick={() => setTripType(student.id, t)}
+                                className={`flex-1 rounded-[var(--radius-btn)] py-1.5 text-[11px] font-semibold border transition-all duration-100 ${
+                                  student.tripType === t
+                                    ? 'bg-amber text-navy border-amber'
+                                    : 'border-rule text-sub hover:text-ink hover:border-amber'
+                                }`}
+                              >
+                                {t === 'BOTH' ? 'Both runs' : t === 'MORNING' ? 'Morning only' : 'Afternoon only'}
+                              </button>
+                            ))}
+                          </div>
                         </div>
                       )}
                     </li>
