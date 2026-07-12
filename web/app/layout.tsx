@@ -6,6 +6,8 @@ import {
   IBM_Plex_Mono,
 } from "next/font/google";
 import "./globals.css";
+import { Analytics } from "@vercel/analytics/next";
+import { SpeedInsights } from "@vercel/speed-insights/next";
 
 const dmSans = DM_Sans({
   variable: "--font-dm-sans",
@@ -47,7 +49,11 @@ export default function RootLayout({
       lang="en"
       className={`${dmSans.variable} ${dmSerifDisplay.variable} ${plexMono.variable} ${bricolage.variable} h-full antialiased scroll-smooth`}
     >
-      <body className="min-h-full flex flex-col bg-canvas">{children}</body>
+      <body className="min-h-full flex flex-col bg-canvas">
+        {children}
+        <Analytics />
+        <SpeedInsights />
+      </body>
     </html>
   );
 }
