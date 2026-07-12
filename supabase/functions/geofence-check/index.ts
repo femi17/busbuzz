@@ -191,9 +191,45 @@ Deno.serve(async (req: Request) => {
       });
       triggeredStopIds.push(stop.id);
 
-      console.error(
-        `[geofence] Trip ${validated.tripId}: triggered stop "${stop.name}" (${stop.id}), ${uniqueParentIds.length} parents to notify (push not yet implemented)`,
-      );
+      if (uniqueParentIds.length > 0) {
+        try {
+          const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
+          const serviceRoleKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
+          const internalSecret = Deno.env.get('INTERNAL_FUNCTION_SECRET')!;
+
+          const pushResp = await fetch(`${supabaseUrl}/functions/v1/send-push`, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'Authorization': `Bearer ${serviceRoleKey}`,
+              'apikey': serviceRoleKey,
+              'X-Internal-Secret': internalSecret,
+            },
+            body: JSON.stringify({
+              userIds: uniqueParentIds,
+              title: 'Bus approaching',
+              body: `The bus is approaching ${stop.name}`,
+              data: {
+                type: 'geofence',
+                tripId: validated.tripId,
+                stopId: stop.id,
+                stopName: stop.name,
+              },
+            }),
+          });
+
+          if (!pushResp.ok) {
+            console.error(
+              `[geofence] send-push returned ${pushResp.status}: ${await pushResp.text()}`,
+            );
+          }
+        } catch (err) {
+          console.error(
+            `[geofence] send-push call failed for stop ${stop.id}:`,
+            err,
+          );
+        }
+      }
     } catch (err) {
       console.error(
         `[geofence] Unexpected error processing stop ${stop.id}:`,

@@ -4,7 +4,8 @@ import { useState } from 'react';
 import { ActivityIndicator, Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { supabase } from '../../../lib/supabase';
-import { DANFO, INK, MUTED } from './constants';
+import { BackpackIcon, BellIcon, BusIcon, SchoolIcon } from '../components/Icons';
+import { color, radius, space, type } from '../theme';
 import type { OnboardingStackParamList } from './OnboardingNavigator';
 
 type Props = NativeStackScreenProps<
@@ -13,9 +14,9 @@ type Props = NativeStackScreenProps<
 >;
 
 const ROWS = [
-  { icon: '🚌', text: 'Know when the bus is near your stop' },
-  { icon: '🎒', text: 'Get notified the moment your child boards' },
-  { icon: '🏫', text: 'Get notified when they arrive safely at school' },
+  { Icon: BusIcon, text: 'Know when the bus is near your stop' },
+  { Icon: BackpackIcon, text: 'Get notified the moment your child boards' },
+  { Icon: SchoolIcon, text: 'Get notified when they arrive safely at school' },
 ];
 
 async function registerPushToken() {
@@ -70,13 +71,17 @@ export default function NotificationPermissionScreen({ navigation }: Props) {
   return (
     <View style={styles.container}>
       <View style={styles.content}>
-        <Text style={styles.bellIcon}>🔔</Text>
+        <View style={styles.bellWrap}>
+          <BellIcon size={40} color={color.ink900} />
+        </View>
         <Text style={styles.headline}>Stay updated, automatically</Text>
 
         <View style={styles.rows}>
           {ROWS.map((row) => (
             <View key={row.text} style={styles.row}>
-              <Text style={styles.rowIcon}>{row.icon}</Text>
+              <View style={styles.rowIconWrap}>
+                <row.Icon size={20} color={color.danfo500} />
+              </View>
               <Text style={styles.rowText}>{row.text}</Text>
             </View>
           ))}
@@ -94,9 +99,9 @@ export default function NotificationPermissionScreen({ navigation }: Props) {
           disabled={isLoading}
         >
           {isLoading ? (
-            <ActivityIndicator color={INK} />
+            <ActivityIndicator color={color.ink900} />
           ) : (
-            <Text style={styles.buttonText}>Enable Notifications</Text>
+            <Text style={styles.buttonText}>Turn on notifications</Text>
           )}
         </Pressable>
         <Text style={styles.footerNote}>
@@ -110,8 +115,8 @@ export default function NotificationPermissionScreen({ navigation }: Props) {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: INK,
-    paddingHorizontal: 28,
+    backgroundColor: color.ink900,
+    paddingHorizontal: space.xxl,
     justifyContent: 'space-between',
     paddingVertical: 64,
   },
@@ -120,16 +125,20 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
   },
-  bellIcon: {
-    fontSize: 56,
-    marginBottom: 20,
+  bellWrap: {
+    width: 76,
+    height: 76,
+    borderRadius: 38,
+    backgroundColor: color.danfo500,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: space.xxl,
   },
   headline: {
-    fontSize: 24,
-    fontWeight: '700',
-    color: '#fff',
+    ...type.displayMd,
+    color: color.white,
     textAlign: 'center',
-    marginBottom: 32,
+    marginBottom: space.xxl + space.xs,
   },
   rows: {
     width: '100%',
@@ -137,43 +146,48 @@ const styles = StyleSheet.create({
   row: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginBottom: 18,
+    marginBottom: space.lg + 2,
   },
-  rowIcon: {
-    fontSize: 22,
-    marginRight: 14,
+  rowIconWrap: {
+    width: 40,
+    height: 40,
+    borderRadius: radius.sm,
+    backgroundColor: color.ink700,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: space.lg,
   },
   rowText: {
-    fontSize: 16,
-    color: '#fff',
+    ...type.bodyLg,
+    color: color.white,
     flex: 1,
   },
   footer: {
     alignItems: 'center',
   },
   button: {
-    backgroundColor: DANFO,
-    borderRadius: 10,
+    backgroundColor: color.danfo500,
+    borderRadius: radius.md,
     paddingVertical: 18,
     alignItems: 'center',
     justifyContent: 'center',
     width: '100%',
   },
   buttonPressed: {
-    backgroundColor: '#E0AD00',
+    backgroundColor: color.danfo600,
   },
   buttonDisabled: {
     opacity: 0.6,
   },
   buttonText: {
-    color: INK,
+    color: color.ink900,
     fontSize: 17,
-    fontWeight: '700',
-    letterSpacing: 1,
+    fontWeight: '800',
+    letterSpacing: 0.3,
   },
   footerNote: {
     fontSize: 13,
-    color: MUTED,
-    marginTop: 14,
+    color: color.mist400,
+    marginTop: space.lg,
   },
 });

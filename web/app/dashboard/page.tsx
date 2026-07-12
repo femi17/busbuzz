@@ -1,90 +1,96 @@
-import { Bus, GraduationCap, Route as RouteIcon, Navigation } from 'lucide-react';
+import Link from 'next/link';
 import { createClient } from '@/lib/supabase-server';
-import { StatCard } from '@/components/dashboard/StatCard';
-import { TripsTable, type TripRow } from '@/components/dashboard/TripsTable';
+import { getFirstName } from '../../../shared/name';
+import { fetchDashboardData } from '@/lib/dashboard-data';
+import { LiveDashboardGrid } from '@/components/dashboard/LiveDashboardGrid';
+import { DashboardHeader } from '@/components/dashboard/DashboardHeader';
 
-function startOfTodayISO(): string {
-  const now = new Date();
-  return new Date(now.getFullYear(), now.getMonth(), now.getDate()).toISOString();
+// Live dashboard: never serve cached counts. Without this Next's Data Cache can
+// hand back a stale count for some tables (e.g. buses/students showing 0 while
+// routes/trips are current) on repeat renders.
+export const dynamic = 'force-dynamic';
+export const fetchCache = 'force-no-store';
+
+function getGreeting(): string {
+  const hour = new Date().getHours();
+  if (hour < 12) return 'Good morning';
+  if (hour < 17) return 'Good afternoon';
+  return 'Good evening';
 }
 
-function startOfTomorrowISO(): string {
-  const now = new Date();
-  return new Date(
-    now.getFullYear(),
-    now.getMonth(),
-    now.getDate() + 1,
-  ).toISOString();
+function formatDate(): string {
+  return new Date().toLocaleDateString('en-GB', {
+    weekday: 'long',
+    day: 'numeric',
+    month: 'long',
+    year: 'numeric',
+  });
 }
 
 export default async function DashboardHomePage() {
   const supabase = await createClient();
 
-  const todayStart = startOfTodayISO();
-  const todayEnd = startOfTomorrowISO();
-
-  const [
-    { count: busesCount },
-    { count: studentsCount },
-    { count: routesCount },
-    { count: activeTripsTodayCount },
-    { data: todaysTrips },
-  ] = await Promise.all([
-    supabase
-      .from('buses')
-      .select('*', { count: 'exact', head: true })
-      .eq('status', 'ACTIVE'),
-    supabase.from('students').select('*', { count: 'exact', head: true }),
-    supabase.from('routes').select('*', { count: 'exact', head: true }),
-    supabase
-      .from('trips')
-      .select('*', { count: 'exact', head: true })
-      .eq('status', 'ACTIVE')
-      .gte('started_at', todayStart)
-      .lt('started_at', todayEnd),
-    supabase
-      .from('trips')
-      .select('id, started_at, status, bus:buses(plate_number), route:routes(name)')
-      .gte('started_at', todayStart)
-      .lt('started_at', todayEnd)
-      .order('started_at', { ascending: false }),
+  // First paint is server-rendered; LiveDashboardGrid keeps it fresh by polling.
+  const [initialData, { data: userData }] = await Promise.all([
+    fetchDashboardData(supabase),
+    supabase.auth.getUser(),
   ]);
 
-  const trips = (todaysTrips ?? []) as unknown as TripRow[];
+  let adminName = 'Admin';
+  let schoolAddress: string | null = null;
+  let schoolLat: number | null = null;
+  let schoolLng: number | null = null;
+  if (userData?.user) {
+    const { data: profile } = await supabase
+      .from('profiles')
+      .select('name, school:schools(address, latitude, longitude)')
+      .eq('id', userData.user.id)
+      .single();
+    if (profile?.name) adminName = getFirstName(profile.name) || adminName;
+
+    const schoolField = profile?.school as unknown;
+    const school = Array.isArray(schoolField)
+      ? (schoolField[0] as { address: string; latitude: number | null; longitude: number | null } | undefined)
+      : (schoolField as { address: string; latitude: number | null; longitude: number | null } | null);
+    if (school) {
+      schoolAddress = school.address ?? null;
+      schoolLat = school.latitude ?? null;
+      schoolLng = school.longitude ?? null;
+    }
+  }
+
+  const greeting = getGreeting();
+  const dateLabel = formatDate();
 
   return (
-    <div className="flex flex-col gap-6">
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
-        <StatCard label="Total Buses" value={busesCount ?? 0} icon={Bus} index={0} />
-        <StatCard
-          label="Total Students"
-          value={studentsCount ?? 0}
-          icon={GraduationCap}
-          index={1}
-        />
-        <StatCard
-          label="Trips Today"
-          value={activeTripsTodayCount ?? 0}
-          icon={Navigation}
-          index={2}
-        />
-        <StatCard
-          label="Active Routes"
-          value={routesCount ?? 0}
-          icon={RouteIcon}
-          index={3}
-        />
-      </div>
+    <div className="max-w-[1200px] mx-auto">
+      <DashboardHeader
+        eyebrow={dateLabel}
+        title={`${greeting}, ${adminName}`}
+        actions={
+          <>
+            <Link
+              href="/dashboard/students/new"
+              className="border border-rule text-ink rounded-[var(--radius-btn)] px-4 py-2.5 text-sm font-medium hover:bg-canvas transition-all duration-150 active:scale-95"
+            >
+              Add Student
+            </Link>
+            <Link
+              href="/dashboard/routes/new"
+              className="bg-amber text-navy rounded-[var(--radius-btn)] px-4 py-2.5 text-sm font-semibold hover:brightness-110 transition-all duration-150 active:scale-95"
+            >
+              New Route
+            </Link>
+          </>
+        }
+      />
 
-      <div className="rounded-xl border border-navy/10 bg-white shadow-sm">
-        <div className="border-b border-navy/10 px-5 py-4">
-          <h2 className="font-display text-base font-bold text-navy">
-            Today&apos;s Trips
-          </h2>
-        </div>
-
-        <TripsTable trips={trips} />
-      </div>
+      <LiveDashboardGrid
+        initial={initialData}
+        schoolLat={schoolLat}
+        schoolLng={schoolLng}
+        schoolAddress={schoolAddress}
+      />
     </div>
   );
 }

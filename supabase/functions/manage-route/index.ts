@@ -1,6 +1,23 @@
 import { createClient, type SupabaseClient } from 'npm:@supabase/supabase-js@2';
 import { z } from 'npm:zod@3';
-import { createRouteSchema } from '../../../shared/schemas.ts';
+
+const routeTypeSchema = z.enum(['MORNING', 'AFTERNOON', 'BOTH']);
+
+const stopInputSchema = z.object({
+  name: z.string().min(1).max(200),
+  latitude: z.number().min(-90).max(90),
+  longitude: z.number().min(-180).max(180),
+  sequence: z.number().int().min(0),
+  etaMinutes: z.number().int().min(0).optional(),
+});
+
+const createRouteSchema = z.object({
+  schoolId: z.string().uuid(),
+  busId: z.string().uuid().optional(),
+  name: z.string().min(1).max(200),
+  type: routeTypeSchema,
+  stops: z.array(stopInputSchema),
+});
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -24,7 +41,7 @@ type RouteRow = {
   school_id: string;
   bus_id: string | null;
   name: string;
-  type: 'MORNING' | 'AFTERNOON';
+  type: 'MORNING' | 'AFTERNOON' | 'BOTH';
   stops?: StopRow[];
   bus?: { plate_number: string } | { plate_number: string }[] | null;
   students?: { count: number }[];

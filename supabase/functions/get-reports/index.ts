@@ -1,5 +1,12 @@
 import { createClient } from 'npm:@supabase/supabase-js@2';
-import { getReportsQuerySchema } from '../../../shared/schemas.ts';
+import { z } from 'zod';
+
+// Inlined (was ../../../shared/schemas.ts) so the deploy bundler ships one file.
+const getReportsQuerySchema = z.object({
+  type: z.enum(['trips', 'attendance', 'summary']),
+  startDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Must be YYYY-MM-DD format'),
+  endDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Must be YYYY-MM-DD format'),
+});
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -264,7 +271,7 @@ async function handleAttendance(
   // 8b-1. Active students in this school
   const { data: students, error: studentsError } = await serviceSupabase
     .from('students')
-    .select('id, name, class_name, route_id')
+    .select('id, name, class_name, route_id, stop_id')
     .eq('school_id', schoolId)
     .eq('is_active', true);
 
@@ -303,26 +310,63 @@ async function handleAttendance(
     }
   }
 
+  // Student → assigned stop, so a boarding can be matched to its stop-arrival time.
+  const studentStopId: Record<string, string | null> = {};
+  for (const s of studentList) {
+    studentStopId[s.id] = s.stop_id ?? null;
+  }
+
   // 8b-3. Attendance records for trips in range, grouped by student_id
   let boardedCounts: Record<string, number> = {};
   let absentCounts: Record<string, number> = {};
+  // Boarding readiness: sum of seconds between the bus reaching a student's stop
+  // (geofence trigger) and the driver marking them BOARDED, plus a count of how
+  // many boardings could be timed, per student.
+  const boardDelaySum: Record<string, number> = {};
+  const timedBoardings: Record<string, number> = {};
   if (tripIds.length > 0) {
-    const { data: attendanceRows, error: attendanceError } =
-      await serviceSupabase
+    const [attendanceRes, triggersRes] = await Promise.all([
+      serviceSupabase
         .from('attendance')
-        .select('student_id, status')
-        .in('trip_id', tripIds);
+        .select('student_id, trip_id, status, marked_at')
+        .in('trip_id', tripIds),
+      serviceSupabase
+        .from('trip_stop_triggers')
+        .select('trip_id, stop_id, triggered_at')
+        .in('trip_id', tripIds),
+    ]);
 
-    if (attendanceError) {
+    if (attendanceRes.error || triggersRes.error) {
       return jsonResponse(
         { error: 'Database query failed', statusCode: 500 },
         500,
       );
     }
 
-    for (const row of attendanceRows ?? []) {
+    // Key stop-arrival times by trip+stop for O(1) lookup per boarding.
+    const arrivalByTripStop = new Map<string, number>();
+    for (const tr of triggersRes.data ?? []) {
+      arrivalByTripStop.set(
+        `${tr.trip_id}:${tr.stop_id}`,
+        new Date(tr.triggered_at).getTime(),
+      );
+    }
+
+    for (const row of attendanceRes.data ?? []) {
       if (row.status === 'BOARDED') {
         boardedCounts[row.student_id] = (boardedCounts[row.student_id] ?? 0) + 1;
+        const stopId = studentStopId[row.student_id];
+        const arrival = stopId
+          ? arrivalByTripStop.get(`${row.trip_id}:${stopId}`)
+          : undefined;
+        if (arrival !== undefined && row.marked_at) {
+          const delaySec = Math.max(
+            0,
+            (new Date(row.marked_at).getTime() - arrival) / 1000,
+          );
+          boardDelaySum[row.student_id] = (boardDelaySum[row.student_id] ?? 0) + delaySec;
+          timedBoardings[row.student_id] = (timedBoardings[row.student_id] ?? 0) + 1;
+        }
       } else if (row.status === 'ABSENT') {
         absentCounts[row.student_id] = (absentCounts[row.student_id] ?? 0) + 1;
       }
@@ -347,6 +391,9 @@ async function handleAttendance(
           totalTrips > 0
             ? Math.round((boardedCount / totalTrips) * 1000) / 10
             : 0;
+        const timed = timedBoardings[student.id] ?? 0;
+        const avgBoardSeconds =
+          timed > 0 ? Math.round(boardDelaySum[student.id] / timed) : null;
 
         return {
           studentId: student.id,
@@ -356,6 +403,8 @@ async function handleAttendance(
           boardedCount,
           absentCount,
           attendancePercentage,
+          avgBoardSeconds,
+          timedBoardings: timed,
         };
       },
     )

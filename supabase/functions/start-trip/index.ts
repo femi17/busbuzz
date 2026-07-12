@@ -1,5 +1,14 @@
 import { createClient } from 'npm:@supabase/supabase-js@2';
-import { startTripSchema } from '../../../shared/schemas.ts';
+import { z } from 'zod';
+
+// Inlined (was ../../../shared/schemas.ts) so the deploy bundler ships one file.
+const startTripSchema = z.object({
+  busId: z.string().uuid(),
+  routeId: z.string().uuid(),
+  // Which run this is. A route of type BOTH runs twice a day — the driver app
+  // sends MORNING or AFTERNOON so only that journey's students are loaded.
+  direction: z.enum(['MORNING', 'AFTERNOON']).optional(),
+});
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -191,12 +200,25 @@ Deno.serve(async (req: Request) => {
     );
   }
 
-  // Load students assigned to this route
+  // Which run is this? Dedicated routes carry their own direction; a BOTH
+  // route uses the client-sent direction, falling back to the local clock
+  // (Africa/Lagos, UTC+1 — the edge runtime clock is UTC).
+  const lagosHour = (new Date().getUTCHours() + 1) % 24;
+  const direction: 'MORNING' | 'AFTERNOON' =
+    route.type === 'MORNING' || route.type === 'AFTERNOON'
+      ? route.type
+      : validated.direction ?? (lagosHour < 12 ? 'MORNING' : 'AFTERNOON');
+
+  // Load students riding THIS journey, in the driver-arranged pickup order
+  // (unarranged students sort last, then by name). The afternoon drop order is
+  // the reverse of the morning pickup order.
   const { data: students, error: studentsError } = await serviceSupabase
     .from('students')
-    .select('id, name, class_name, photo_url, stop_id')
+    .select('id, name, class_name, photo_url, stop_id, pickup_lat, pickup_lng, pickup_sequence')
     .eq('route_id', validated.routeId)
     .eq('is_active', true)
+    .in('trip_type', [direction, 'BOTH'])
+    .order('pickup_sequence', { ascending: direction === 'MORNING', nullsFirst: false })
     .order('name', { ascending: true });
 
   if (studentsError) {
@@ -204,6 +226,66 @@ Deno.serve(async (req: Request) => {
       { error: 'Failed to create trip', statusCode: 500 },
       500,
     );
+  }
+
+  // Parent-reported absences for today: auto-mark those students ABSENT on
+  // this trip so the driver sees them cancelled immediately and skips their
+  // stop — no tap needed.
+  try {
+    const lagosToday = new Date(Date.now() + 60 * 60 * 1000)
+      .toISOString()
+      .slice(0, 10);
+    const studentIds = (students ?? []).map((s) => s.id);
+    if (studentIds.length > 0) {
+      const { data: absences } = await serviceSupabase
+        .from('student_absences')
+        .select('student_id')
+        .eq('absence_date', lagosToday)
+        .in('student_id', studentIds);
+
+      const absentIds = (absences ?? []).map(
+        (a: { student_id: string }) => a.student_id,
+      );
+      if (absentIds.length > 0) {
+        await serviceSupabase.from('attendance').upsert(
+          absentIds.map((sid: string) => ({
+            trip_id: trip.id,
+            student_id: sid,
+            status: 'ABSENT',
+            marked_at: new Date().toISOString(),
+          })),
+          { onConflict: 'trip_id,student_id' },
+        );
+      }
+    }
+  } catch (err) {
+    console.error('[start-trip] absence auto-mark failed:', err);
+  }
+
+  // Tell proactively-subscribed parents the trip has started, so they begin
+  // tracking instantly instead of waiting for a poll (private bus channel).
+  try {
+    const serviceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
+    await fetch(`${Deno.env.get('SUPABASE_URL')}/realtime/v1/api/broadcast`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        apikey: serviceKey,
+        Authorization: `Bearer ${serviceKey}`,
+      },
+      body: JSON.stringify({
+        messages: [
+          {
+            topic: `bus:${trip.bus_id}`,
+            event: 'trip_started',
+            payload: { tripId: trip.id, routeId: trip.route_id },
+            private: true,
+          },
+        ],
+      }),
+    });
+  } catch (err) {
+    console.error('[start-trip] Realtime broadcast failed:', err);
   }
 
   return jsonResponse(
@@ -215,6 +297,7 @@ Deno.serve(async (req: Request) => {
         driverId: trip.driver_id,
         status: trip.status,
         startedAt: trip.started_at,
+        direction,
         route: {
           id: route.id,
           name: route.name,
@@ -235,6 +318,8 @@ Deno.serve(async (req: Request) => {
           className: s.class_name,
           photoUrl: s.photo_url,
           stopId: s.stop_id,
+          pickupLat: s.pickup_lat,
+          pickupLng: s.pickup_lng,
         })),
       },
       message: 'Trip started',

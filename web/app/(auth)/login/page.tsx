@@ -18,19 +18,24 @@ export default function LoginPage() {
     setError(null);
     setIsSubmitting(true);
 
-    const supabase = createClient();
-    const { error: signInError } = await supabase.auth.signInWithPassword({
-      email,
-      password,
-    });
+    try {
+      const supabase = createClient();
+      const { error: signInError } = await supabase.auth.signInWithPassword({
+        email,
+        password,
+      });
 
-    if (signInError) {
-      setError('Incorrect email or password. Please try again.');
+      if (signInError) {
+        setError('Incorrect email or password. Please try again.');
+        return;
+      }
+
+      router.push('/dashboard');
+    } catch {
+      setError('Could not reach the server. Check your connection and try again.');
+    } finally {
       setIsSubmitting(false);
-      return;
     }
-
-    router.push('/dashboard');
   }
 
   return (
@@ -38,13 +43,15 @@ export default function LoginPage() {
       initial={{ opacity: 0, y: 12 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.4, ease: 'easeOut' }}
-      className="rounded-2xl bg-white p-8 shadow-xl"
+      className="overflow-hidden rounded-[20px] bg-white shadow-[0_30px_70px_-24px_rgba(0,0,0,0.65)]"
     >
-      <h1 className="mb-1 font-display text-xl font-bold text-navy">
-        School Admin Login
+      <div aria-hidden className="h-1.5 hazard-stripe" />
+      <div className="p-8">
+      <h1 className="mb-1 font-heading text-[22px] font-bold tracking-tight text-ink">
+        Sign in to your school
       </h1>
-      <p className="mb-6 text-sm text-navy/50">
-        Sign in to manage your school&apos;s buses, routes, and students.
+      <p className="mb-6 text-sm text-sub">
+        Manage your buses, routes, and students from one dashboard.
       </p>
 
       <form onSubmit={handleSubmit} className="flex flex-col gap-4">
@@ -106,7 +113,7 @@ export default function LoginPage() {
         <button
           type="submit"
           disabled={isSubmitting}
-          className="mt-2 flex items-center justify-center gap-2 rounded-lg bg-amber px-4 py-2.5 text-sm font-semibold text-navy transition-colors hover:bg-amber-dark disabled:cursor-not-allowed disabled:opacity-60"
+          className="mt-2 flex items-center justify-center gap-2 rounded-[var(--radius-btn)] bg-amber px-4 py-3 text-sm font-bold text-night transition-all hover:brightness-105 active:scale-[0.99] disabled:cursor-not-allowed disabled:opacity-60 shadow-[0_12px_28px_-12px_rgba(255,201,0,0.55)]"
         >
           {isSubmitting ? (
             <>
@@ -121,6 +128,7 @@ export default function LoginPage() {
           )}
         </button>
       </form>
+      </div>
     </motion.div>
   );
 }

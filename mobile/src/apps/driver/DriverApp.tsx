@@ -2,14 +2,22 @@ import { NavigationContainer } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import * as Notifications from 'expo-notifications';
 import { useEffect, useState } from 'react';
-import { ActivityIndicator, StyleSheet, View } from 'react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import type { Stop } from '../../../../shared/types';
+import '../../lib/mapbox';
+import {
+  configureForegroundNotifications,
+  ensureNotificationChannels,
+} from '../../lib/notifications';
 import { supabase } from '../../lib/supabase';
+
+configureForegroundNotifications();
+import { AnimatedSplash } from './components/AnimatedSplash';
 import AttendanceScreen from './AttendanceScreen';
 import LoginScreen from './LoginScreen';
+import PickupOrderScreen from './PickupOrderScreen';
 import TodayScreen from './TodayScreen';
 
 const ACCESS_TOKEN_KEY = '@busbuzz_access_token';
@@ -26,8 +34,18 @@ export type DriverStackParamList = {
       className: string;
       photoUrl: string | null;
       stopId: string | null;
+      pickupLat: number | null;
+      pickupLng: number | null;
     }>;
     busId: string;
+    routeName: string;
+    // Which run this is — drives board/drop semantics and, for BOTH routes,
+    // reverses the stop order on the afternoon run.
+    direction: 'MORNING' | 'AFTERNOON';
+    routeType: 'MORNING' | 'AFTERNOON' | 'BOTH';
+  };
+  PickupOrder: {
+    routeId: string;
     routeName: string;
   };
 };
@@ -48,6 +66,8 @@ async function registerForPushNotifications(accessToken: string) {
     if (finalStatus !== 'granted') {
       return;
     }
+
+    await ensureNotificationChannels();
 
     const tokenResponse = await Notifications.getExpoPushTokenAsync();
     const supabaseUrl = process.env.EXPO_PUBLIC_SUPABASE_URL;
@@ -87,7 +107,9 @@ export default function DriverApp() {
       if (session?.access_token) {
         await AsyncStorage.setItem(ACCESS_TOKEN_KEY, session.access_token);
         setInitialRouteName('Today');
-        await registerForPushNotifications(session.access_token);
+        // Never await this — a hung permission dialog or FCM registration
+        // must not be able to block the app from ever finishing loading.
+        registerForPushNotifications(session.access_token);
       } else {
         setInitialRouteName('Login');
       }
@@ -117,9 +139,9 @@ export default function DriverApp() {
 
   if (isLoading) {
     return (
-      <View style={styles.loadingContainer}>
-        <ActivityIndicator size="large" color="#2196F3" />
-      </View>
+      <SafeAreaProvider>
+        <AnimatedSplash />
+      </SafeAreaProvider>
     );
   }
 
@@ -133,17 +155,9 @@ export default function DriverApp() {
           <Stack.Screen name="Login" component={LoginScreen} />
           <Stack.Screen name="Today" component={TodayScreen} />
           <Stack.Screen name="Attendance" component={AttendanceScreen} />
+          <Stack.Screen name="PickupOrder" component={PickupOrderScreen} />
         </Stack.Navigator>
       </NavigationContainer>
     </SafeAreaProvider>
   );
 }
-
-const styles = StyleSheet.create({
-  loadingContainer: {
-    flex: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: '#fff',
-  },
-});

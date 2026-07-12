@@ -6,6 +6,7 @@
   "build": {
     "preview": {
       "distribution": "internal",
+      "autoIncrement": true,
       "android": {
         "buildType": "apk"
       },
@@ -14,11 +15,13 @@
         "EXPO_PUBLIC_SUPABASE_URL": "https://nmgvnoudmxrzqthnfxkk.supabase.co",
         "EXPO_PUBLIC_SUPABASE_ANON_KEY": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im5tZ3Zub3VkbXhyenF0aG5meGtrIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODI3MjU4NjgsImV4cCI6MjA5ODMwMTg2OH0.rUL3_PXXbFGtAVdW-Zhw0pjvmFCaP_YZ3AljWganBaY",
         "EXPO_PUBLIC_GPS_INTERVAL_MS": "10000",
-        "EXPO_PUBLIC_GEOFENCE_RADIUS_M": "300"
+        "EXPO_PUBLIC_GEOFENCE_RADIUS_M": "300",
+        "EXPO_PUBLIC_MAPBOX_TOKEN": "pk.eyJ1Ijoib2R1b2xhZmVtaSIsImEiOiJjbXB2MzNsNjIwbWs3MnFzZmw3cnVnbzRqIn0.tYTtzTVfJJQZsKsE_aLUWA"
       }
     },
     "driver": {
       "distribution": "internal",
+      "autoIncrement": true,
       "android": {
         "buildType": "apk"
       },
@@ -27,10 +30,12 @@
         "EXPO_PUBLIC_SUPABASE_URL": "https://nmgvnoudmxrzqthnfxkk.supabase.co",
         "EXPO_PUBLIC_SUPABASE_ANON_KEY": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im5tZ3Zub3VkbXhyenF0aG5meGtrIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODI3MjU4NjgsImV4cCI6MjA5ODMwMTg2OH0.rUL3_PXXbFGtAVdW-Zhw0pjvmFCaP_YZ3AljWganBaY",
         "EXPO_PUBLIC_GPS_INTERVAL_MS": "10000",
-        "EXPO_PUBLIC_GEOFENCE_RADIUS_M": "300"
+        "EXPO_PUBLIC_GEOFENCE_RADIUS_M": "300",
+        "EXPO_PUBLIC_MAPBOX_TOKEN": "pk.eyJ1Ijoib2R1b2xhZmVtaSIsImEiOiJjbXB2MzNsNjIwbWs3MnFzZmw3cnVnbzRqIn0.tYTtzTVfJJQZsKsE_aLUWA"
       }
     },
     "production": {
+      "autoIncrement": true,
       "android": {
         "buildType": "app-bundle"
       },
@@ -39,10 +44,12 @@
         "EXPO_PUBLIC_SUPABASE_URL": "https://nmgvnoudmxrzqthnfxkk.supabase.co",
         "EXPO_PUBLIC_SUPABASE_ANON_KEY": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im5tZ3Zub3VkbXhyenF0aG5meGtrIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODI3MjU4NjgsImV4cCI6MjA5ODMwMTg2OH0.rUL3_PXXbFGtAVdW-Zhw0pjvmFCaP_YZ3AljWganBaY",
         "EXPO_PUBLIC_GPS_INTERVAL_MS": "10000",
-        "EXPO_PUBLIC_GEOFENCE_RADIUS_M": "300"
+        "EXPO_PUBLIC_GEOFENCE_RADIUS_M": "300",
+        "EXPO_PUBLIC_MAPBOX_TOKEN": "pk.eyJ1Ijoib2R1b2xhZmVtaSIsImEiOiJjbXB2MzNsNjIwbWs3MnFzZmw3cnVnbzRqIn0.tYTtzTVfJJQZsKsE_aLUWA"
       }
     },
     "production:driver": {
+      "autoIncrement": true,
       "android": {
         "buildType": "app-bundle"
       },
@@ -51,7 +58,8 @@
         "EXPO_PUBLIC_SUPABASE_URL": "https://nmgvnoudmxrzqthnfxkk.supabase.co",
         "EXPO_PUBLIC_SUPABASE_ANON_KEY": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im5tZ3Zub3VkbXhyenF0aG5meGtrIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODI3MjU4NjgsImV4cCI6MjA5ODMwMTg2OH0.rUL3_PXXbFGtAVdW-Zhw0pjvmFCaP_YZ3AljWganBaY",
         "EXPO_PUBLIC_GPS_INTERVAL_MS": "10000",
-        "EXPO_PUBLIC_GEOFENCE_RADIUS_M": "300"
+        "EXPO_PUBLIC_GEOFENCE_RADIUS_M": "300",
+        "EXPO_PUBLIC_MAPBOX_TOKEN": "pk.eyJ1Ijoib2R1b2xhZmVtaSIsImEiOiJjbXB2MzNsNjIwbWs3MnFzZmw3cnVnbzRqIn0.tYTtzTVfJJQZsKsE_aLUWA"
       }
     }
   }

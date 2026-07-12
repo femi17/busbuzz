@@ -4,16 +4,26 @@ import {
   ActivityIndicator,
   Alert,
   Pressable,
+  ScrollView,
   StyleSheet,
   Text,
   View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
+import { getFirstName } from '../../../../shared/name';
 import type { Stop } from '../../../../shared/types';
 import { supabase } from '../../lib/supabase';
+import {
+  AlertDiamondIcon,
+  BusFrontIcon,
+  PinIcon,
+  RouteIcon,
+  UsersIcon,
+} from './components/Icons';
 import type { DriverStackParamList } from './DriverApp';
 import { startGPSBroadcast } from './gpsService';
+import { color, radius, space } from './theme';
 
 type Props = NativeStackScreenProps<DriverStackParamList, 'Today'>;
 
@@ -23,19 +33,32 @@ type StudentSummary = {
   className: string;
   photoUrl: string | null;
   stopId: string | null;
+  pickupLat: number | null;
+  pickupLng: number | null;
 };
 
 type LoadedState = {
+  driverName: string | null;
   busId: string;
   plateNumber: string;
   deviceId: string | null;
   routeId: string;
   routeName: string;
-  routeType: 'MORNING' | 'AFTERNOON';
+  routeType: 'MORNING' | 'AFTERNOON' | 'BOTH';
+  // The single run the driver can start right now. A BOTH route follows the
+  // clock — morning runs its course, then the afternoon run takes over. Never
+  // "BOTH": one journey at a time.
+  runDirection: 'MORNING' | 'AFTERNOON';
+  schoolName: string | null;
+  studentCount: number;
+  stopCount: number;
   activeTrip: {
     id: string;
     stops: Stop[];
     students: StudentSummary[];
+    direction: 'MORNING' | 'AFTERNOON';
+    routeType: 'MORNING' | 'AFTERNOON' | 'BOTH';
+    routeName: string;
   } | null;
 };
 
@@ -62,7 +85,7 @@ export default function TodayScreen({ navigation }: Props) {
 
       const { data: profile, error: profileError } = await supabase
         .from('profiles')
-        .select('school_id')
+        .select('name, school_id, schools(name)')
         .eq('id', session.user.id)
         .single();
 
@@ -71,6 +94,9 @@ export default function TodayScreen({ navigation }: Props) {
         setIsLoading(false);
         return;
       }
+
+      const schoolRow = profile.schools as { name: string } | { name: string }[] | null;
+      const schoolName = Array.isArray(schoolRow) ? schoolRow[0]?.name ?? null : schoolRow?.name ?? null;
 
       const { data: buses, error: busesError } = await supabase
         .from('buses')
@@ -100,7 +126,29 @@ export default function TodayScreen({ navigation }: Props) {
       const isBeforeNoon = new Date().getHours() < 12;
       const preferredType = isBeforeNoon ? 'MORNING' : 'AFTERNOON';
       const route =
-        routes.find((r) => r.type === preferredType) ?? routes[0];
+        routes.find((r) => r.type === preferredType) ??
+        routes.find((r) => r.type === 'BOTH') ??
+        routes[0];
+
+      // One run at a time: a BOTH route follows the clock, a dedicated route
+      // is always its own direction.
+      const runDirection: 'MORNING' | 'AFTERNOON' =
+        route.type === 'MORNING' || route.type === 'AFTERNOON'
+          ? route.type
+          : preferredType;
+
+      // Only count students riding THIS journey.
+      const { count: studentCount } = await supabase
+        .from('students')
+        .select('id', { count: 'exact', head: true })
+        .eq('route_id', route.id)
+        .eq('is_active', true)
+        .in('trip_type', [runDirection, 'BOTH']);
+
+      const { count: stopCount } = await supabase
+        .from('stops')
+        .select('id', { count: 'exact', head: true })
+        .eq('route_id', route.id);
 
       const { data: existingTrip, error: tripError } = await supabase
         .from('trips')
@@ -118,6 +166,18 @@ export default function TodayScreen({ navigation }: Props) {
       let activeTrip: LoadedState['activeTrip'] = null;
 
       if (existingTrip) {
+        // The active trip may be on a different route than today's preferred
+        // one — resolve its own route for name/type, and derive the run
+        // direction from when the trip started (a BOTH route runs twice).
+        const tripRoute =
+          routes.find((r) => r.id === existingTrip.route_id) ?? route;
+        const tripDirection: 'MORNING' | 'AFTERNOON' =
+          tripRoute.type === 'MORNING' || tripRoute.type === 'AFTERNOON'
+            ? tripRoute.type
+            : new Date(existingTrip.started_at).getHours() < 12
+              ? 'MORNING'
+              : 'AFTERNOON';
+
         const { data: stops } = await supabase
           .from('stops')
           .select('id, route_id, name, latitude, longitude, sequence, eta_minutes')
@@ -126,9 +186,14 @@ export default function TodayScreen({ navigation }: Props) {
 
         const { data: students } = await supabase
           .from('students')
-          .select('id, name, class_name, photo_url, stop_id')
+          .select('id, name, class_name, photo_url, stop_id, pickup_lat, pickup_lng')
           .eq('route_id', existingTrip.route_id)
           .eq('is_active', true)
+          .in('trip_type', [tripDirection, 'BOTH'])
+          .order('pickup_sequence', {
+            ascending: tripDirection === 'MORNING',
+            nullsFirst: false,
+          })
           .order('name');
 
         activeTrip = {
@@ -148,17 +213,27 @@ export default function TodayScreen({ navigation }: Props) {
             className: s.class_name,
             photoUrl: s.photo_url,
             stopId: s.stop_id,
+            pickupLat: s.pickup_lat,
+            pickupLng: s.pickup_lng,
           })),
+          direction: tripDirection,
+          routeType: tripRoute.type,
+          routeName: tripRoute.name,
         };
       }
 
       setState({
+        driverName: profile.name ?? null,
         busId: bus.id,
         plateNumber: bus.plate_number,
         deviceId: bus.device_id,
         routeId: route.id,
         routeName: route.name,
         routeType: route.type,
+        runDirection,
+        schoolName,
+        studentCount: studentCount ?? 0,
+        stopCount: stopCount ?? 0,
         activeTrip,
       });
     } catch {
@@ -170,7 +245,11 @@ export default function TodayScreen({ navigation }: Props) {
 
   useEffect(() => {
     loadData();
-  }, [loadData]);
+    // Refresh when returning from Pickup Order (or a finished trip) so the
+    // dashboard reflects the latest arrangement and trip state.
+    const unsubscribe = navigation.addListener('focus', loadData);
+    return unsubscribe;
+  }, [loadData, navigation]);
 
   async function handleStartTrip() {
     if (!state) return;
@@ -195,7 +274,11 @@ export default function TodayScreen({ navigation }: Props) {
           'Content-Type': 'application/json',
           'Authorization': `Bearer ${session.access_token}`,
         },
-        body: JSON.stringify({ busId: state.busId, routeId: state.routeId }),
+        body: JSON.stringify({
+          busId: state.busId,
+          routeId: state.routeId,
+          direction: state.runDirection,
+        }),
       });
 
       if (response.status === 409) {
@@ -222,6 +305,8 @@ export default function TodayScreen({ navigation }: Props) {
         students: trip.students,
         busId: trip.busId,
         routeName: trip.route.name,
+        direction: trip.direction ?? state.runDirection,
+        routeType: trip.route.type ?? state.routeType,
       });
     } catch {
       Alert.alert('Error', 'Failed to start trip.');
@@ -245,7 +330,9 @@ export default function TodayScreen({ navigation }: Props) {
         stops: state.activeTrip.stops,
         students: state.activeTrip.students,
         busId: state.busId,
-        routeName: state.routeName,
+        routeName: state.activeTrip.routeName,
+        direction: state.activeTrip.direction,
+        routeType: state.activeTrip.routeType,
       });
     } catch {
       Alert.alert('Error', 'Failed to resume trip GPS broadcast.');
@@ -304,197 +391,432 @@ export default function TodayScreen({ navigation }: Props) {
 
   if (isLoading) {
     return (
-      <SafeAreaView style={styles.centerContainer}>
-        <ActivityIndicator size="large" color={DANFO} />
+      <SafeAreaView style={styles.center}>
+        <ActivityIndicator size="large" color={color.danfoDim} />
       </SafeAreaView>
     );
   }
 
   if (errorMessage || !state) {
     return (
-      <SafeAreaView style={styles.centerContainer}>
-        <Text style={styles.errorText}>
-          {errorMessage ?? 'Something went wrong.'}
-        </Text>
-        <Pressable style={styles.retryButton} onPress={loadData}>
-          <Text style={styles.retryButtonText}>RETRY</Text>
-        </Pressable>
+      <SafeAreaView style={styles.errorScreen}>
+        <View style={styles.errorCard}>
+          <View style={styles.errorIcon}>
+            <AlertDiamondIcon size={28} color={color.stopRed} />
+          </View>
+          <Text style={styles.errorTitle}>Can&apos;t start yet</Text>
+          <Text style={styles.errorText}>{errorMessage ?? 'Something went wrong.'}</Text>
+          <Pressable
+            style={({ pressed }) => [styles.retryButton, pressed && styles.pressed]}
+            onPress={loadData}
+          >
+            <Text style={styles.retryButtonText}>Try again</Text>
+          </Pressable>
+        </View>
       </SafeAreaView>
     );
   }
 
+  const hour = new Date().getHours();
+  const greeting = hour < 12 ? 'Good morning' : hour < 17 ? 'Good afternoon' : 'Good evening';
+  const firstName = state.driverName ? getFirstName(state.driverName) : undefined;
+  const ctaLabel = state.activeTrip ? 'RESUME ROUTE' : `START ${state.runDirection} ROUTE`;
+  const onCta = state.activeTrip ? handleResumeTrip : handleStartTrip;
+  const schoolInitial = (state.schoolName ?? 'B').trim()[0]?.toUpperCase() ?? 'B';
+
   return (
-    <SafeAreaView style={styles.container}>
-      <View style={styles.header}>
-        <Text style={styles.headerTitle}>
-          Bus<Text style={styles.headerAccent}>Buzz</Text>
-        </Text>
-        <Pressable style={styles.sosButton} onPress={handleSOS}>
-          <Text style={styles.sosButtonText}>SOS</Text>
-        </Pressable>
-      </View>
-
-      <View style={styles.content}>
-        <View style={styles.badge}>
-          <Text style={styles.badgeText}>{state.routeType}</Text>
-        </View>
-        <Text style={styles.routeName}>{state.routeName}</Text>
-        <Text style={styles.plateNumber}>{state.plateNumber}</Text>
-
-        {state.activeTrip ? (
+    <View style={styles.container}>
+      <SafeAreaView edges={['top']} style={styles.headerSafe}>
+        <View style={styles.header}>
+          <View style={styles.brandRow}>
+            <View style={styles.logoCircle}>
+              <Text style={styles.logoInitial}>{schoolInitial}</Text>
+            </View>
+            <Text style={styles.wordmark}>
+              Bus<Text style={styles.wordmarkAccent}>Buzz</Text>
+            </Text>
+          </View>
           <Pressable
-            style={({ pressed }) => [
-              styles.actionButton,
-              styles.resumeButton,
-              pressed && styles.actionButtonPressed,
-            ]}
-            onPress={handleResumeTrip}
+            style={({ pressed }) => [styles.sosDiamond, pressed && styles.pressed]}
+            onPress={handleSOS}
+            accessibilityLabel="Send SOS alert"
           >
-            <Text style={styles.actionButtonText}>RESUME TRIP</Text>
+            <AlertDiamondIcon size={22} color={color.stopRed} />
           </Pressable>
-        ) : (
+        </View>
+      </SafeAreaView>
+
+      <ScrollView contentContainerStyle={styles.body} showsVerticalScrollIndicator={false}>
+        <Text style={styles.greetingEyebrow}>
+          {greeting}
+          {firstName ? `, ${firstName}` : ''}
+        </Text>
+        <Text style={styles.greetingTitle}>
+          {state.activeTrip ? 'Trip in progress' : 'Ready to roll?'}
+        </Text>
+
+        {/* Hero — the one thing the driver taps to begin the run */}
+        <View style={styles.ctaWrap}>
+          <View style={styles.ctaHalo} />
           <Pressable
-            style={({ pressed }) => [
-              styles.actionButton,
-              styles.startButton,
-              pressed && styles.actionButtonPressed,
-            ]}
-            onPress={handleStartTrip}
+            onPress={onCta}
             disabled={isStarting}
+            accessibilityRole="button"
+            accessibilityLabel={ctaLabel}
+            style={({ pressed }) => [styles.ctaCircle, pressed && styles.ctaPressed]}
           >
             {isStarting ? (
-              <ActivityIndicator color={INK} />
+              <ActivityIndicator color={color.ink} size="large" />
             ) : (
-              <Text style={styles.actionButtonText}>START TRIP</Text>
+              <>
+                <BusFrontIcon size={44} color={color.ink} />
+                <Text style={styles.ctaLabel}>{ctaLabel}</Text>
+              </>
             )}
           </Pressable>
+        </View>
+
+        {/* At-a-glance readiness */}
+        <View style={styles.statRow}>
+          <View style={[styles.statCard, styles.statCardAmber]}>
+            <View style={styles.statTop}>
+              <UsersIcon size={20} color={color.ink} />
+              <Text style={styles.statTitle}>Students</Text>
+            </View>
+            <Text style={styles.statNumber}>{state.studentCount}</Text>
+            <Text style={styles.statSub}>Confirmed for pickup</Text>
+          </View>
+          <View style={[styles.statCard, styles.statCardNavy]}>
+            <View style={styles.statTop}>
+              <RouteIcon size={20} color={color.ink} />
+              <Text style={styles.statTitle}>Stops</Text>
+            </View>
+            <Text style={styles.statNumber}>{state.stopCount}</Text>
+            <Text style={styles.statSub} numberOfLines={1}>
+              {state.routeName}
+            </Text>
+          </View>
+        </View>
+
+        {/* Assigned bus */}
+        <View style={styles.locCard}>
+          <View style={styles.locIcon}>
+            <PinIcon size={20} color={color.ink} />
+          </View>
+          <View style={styles.locMeta}>
+            <Text style={styles.locLabel}>Assigned bus</Text>
+            <Text style={styles.locValue}>{state.plateNumber}</Text>
+          </View>
+          <View style={styles.readyDot} />
+        </View>
+
+        {/* Pickup order — arranged once, kept until the road changes */}
+        {!state.activeTrip && (
+          <Pressable
+            style={({ pressed }) => [styles.locCard, pressed && styles.pressed]}
+            onPress={() =>
+              navigation.navigate('PickupOrder', {
+                routeId: state.routeId,
+                routeName: state.routeName,
+              })
+            }
+            accessibilityRole="button"
+            accessibilityLabel="Arrange pickup order"
+          >
+            <View style={styles.locIcon}>
+              <RouteIcon size={20} color={color.ink} />
+            </View>
+            <View style={styles.locMeta}>
+              <Text style={styles.locLabel}>Pickup order</Text>
+              <Text style={styles.locValue}>Arrange who you pick first</Text>
+            </View>
+            <Text style={styles.cardChevron}>›</Text>
+          </Pressable>
         )}
-      </View>
-    </SafeAreaView>
+      </ScrollView>
+    </View>
   );
 }
 
-const INK = '#0E1B2E';
-const ASPHALT = '#23262B';
-const DANFO = '#FFC900';
-const ROUTE_GREEN = '#1C9D5B';
-const STOP_RED = '#E13E2D';
+const CTA_SIZE = 220;
+const HALO_SIZE = 296;
 
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: ASPHALT,
+    backgroundColor: color.canvas,
   },
-  centerContainer: {
+  center: {
     flex: 1,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: ASPHALT,
-    padding: 24,
+    backgroundColor: color.canvas,
+  },
+  // Header
+  headerSafe: {
+    backgroundColor: color.ink,
   },
   header: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingHorizontal: 20,
-    paddingVertical: 14,
+    paddingHorizontal: space.xl,
+    paddingVertical: space.md,
+    backgroundColor: color.ink,
     borderBottomWidth: 3,
-    borderBottomColor: DANFO,
-    backgroundColor: INK,
+    borderBottomColor: color.danfo,
   },
-  headerTitle: {
+  brandRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: space.sm + 2,
+  },
+  logoCircle: {
+    width: 34,
+    height: 34,
+    borderRadius: 17,
+    backgroundColor: color.danfo,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  logoInitial: {
+    color: color.ink,
+    fontWeight: '800',
+    fontSize: 16,
+  },
+  wordmark: {
     fontSize: 20,
-    fontWeight: '700',
-    color: '#fff',
+    fontWeight: '800',
+    color: color.white,
     letterSpacing: -0.3,
   },
-  headerAccent: {
-    color: DANFO,
+  wordmarkAccent: {
+    color: color.danfo,
   },
-  sosButton: {
-    backgroundColor: STOP_RED,
-    paddingHorizontal: 20,
-    paddingVertical: 10,
-    borderRadius: 8,
+  sosDiamond: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: 'rgba(225,62,45,0.14)',
+    alignItems: 'center',
+    justifyContent: 'center',
   },
-  sosButtonText: {
-    color: '#fff',
+  // Body
+  body: {
+    paddingHorizontal: space.xl,
+    paddingTop: space.xxl,
+    paddingBottom: space.xxxl + space.lg,
+  },
+  greetingEyebrow: {
+    fontSize: 13,
     fontWeight: '700',
-    letterSpacing: 1,
+    letterSpacing: 1.5,
+    textTransform: 'uppercase',
+    color: color.sub,
+    textAlign: 'center',
   },
-  content: {
+  greetingTitle: {
+    fontSize: 20,
+    fontWeight: '800',
+    color: color.ink,
+    textAlign: 'center',
+    marginTop: space.xs,
+  },
+  // Hero CTA
+  ctaWrap: {
+    height: HALO_SIZE,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginVertical: space.lg,
+  },
+  ctaHalo: {
+    position: 'absolute',
+    width: HALO_SIZE,
+    height: HALO_SIZE,
+    borderRadius: HALO_SIZE / 2,
+    backgroundColor: color.danfoSoft,
+  },
+  ctaCircle: {
+    width: CTA_SIZE,
+    height: CTA_SIZE,
+    borderRadius: CTA_SIZE / 2,
+    backgroundColor: color.danfo,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 8,
+    borderColor: color.white,
+    paddingHorizontal: space.lg,
+    shadowColor: color.danfoDim,
+    shadowOpacity: 0.45,
+    shadowOffset: { width: 0, height: 10 },
+    shadowRadius: 20,
+    elevation: 10,
+  },
+  ctaPressed: {
+    transform: [{ scale: 0.97 }],
+  },
+  ctaLabel: {
+    color: color.ink,
+    fontSize: 19,
+    fontWeight: '800',
+    letterSpacing: 0.5,
+    textAlign: 'center',
+    lineHeight: 24,
+    marginTop: space.sm + 2,
+  },
+  // Stat cards
+  statRow: {
+    flexDirection: 'row',
+    gap: space.md,
+  },
+  statCard: {
+    flex: 1,
+    backgroundColor: color.surface,
+    borderRadius: radius.lg,
+    padding: space.lg,
+    borderLeftWidth: 4,
+    shadowColor: '#000',
+    shadowOpacity: 0.06,
+    shadowOffset: { width: 0, height: 2 },
+    shadowRadius: 8,
+    elevation: 2,
+  },
+  statCardAmber: {
+    borderLeftColor: color.danfo,
+  },
+  statCardNavy: {
+    borderLeftColor: color.ink,
+  },
+  statTop: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: space.sm,
+    marginBottom: space.sm,
+  },
+  statTitle: {
+    fontSize: 15,
+    fontWeight: '700',
+    color: color.ink,
+  },
+  statNumber: {
+    fontSize: 30,
+    fontWeight: '800',
+    color: color.ink,
+    fontVariant: ['tabular-nums'],
+  },
+  statSub: {
+    fontSize: 12,
+    fontWeight: '500',
+    color: color.sub,
+    marginTop: 2,
+  },
+  // Assigned-bus card
+  locCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: color.surface,
+    borderRadius: radius.lg,
+    padding: space.lg,
+    marginTop: space.md,
+    shadowColor: '#000',
+    shadowOpacity: 0.06,
+    shadowOffset: { width: 0, height: 2 },
+    shadowRadius: 8,
+    elevation: 2,
+  },
+  locIcon: {
+    width: 40,
+    height: 40,
+    borderRadius: radius.md,
+    backgroundColor: color.canvas,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: space.md,
+  },
+  locMeta: {
+    flex: 1,
+  },
+  locLabel: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: color.sub,
+  },
+  locValue: {
+    fontSize: 16,
+    fontWeight: '800',
+    color: color.ink,
+    letterSpacing: 0.5,
+    marginTop: 2,
+  },
+  readyDot: {
+    width: 10,
+    height: 10,
+    borderRadius: 5,
+    backgroundColor: color.routeGreen,
+  },
+  cardChevron: {
+    fontSize: 28,
+    lineHeight: 30,
+    fontWeight: '600',
+    color: color.sub,
+    marginLeft: space.sm,
+  },
+  // Error state
+  errorScreen: {
     flex: 1,
     alignItems: 'center',
     justifyContent: 'center',
-    paddingHorizontal: 24,
+    backgroundColor: color.canvas,
+    padding: space.xxl,
   },
-  routeName: {
-    fontSize: 30,
-    fontWeight: '700',
-    textAlign: 'center',
-    color: '#fff',
-    marginBottom: 6,
+  errorCard: {
+    width: '100%',
+    maxWidth: 360,
+    backgroundColor: color.surface,
+    borderRadius: radius.lg + 6,
+    padding: space.xxl + 4,
+    alignItems: 'center',
+    shadowColor: '#000',
+    shadowOpacity: 0.08,
+    shadowOffset: { width: 0, height: 4 },
+    shadowRadius: 12,
+    elevation: 3,
   },
-  plateNumber: {
-    fontSize: 18,
-    fontWeight: '600',
-    color: '#9CA3AF',
-    letterSpacing: 1,
-    marginBottom: 28,
-  },
-  badge: {
-    backgroundColor: 'rgba(255,201,0,0.15)',
-    borderWidth: 1,
-    borderColor: DANFO,
-    paddingHorizontal: 16,
-    paddingVertical: 6,
-    borderRadius: 16,
-    marginBottom: 16,
-  },
-  badgeText: {
-    color: DANFO,
-    fontWeight: '700',
-    fontSize: 13,
-    letterSpacing: 1,
-  },
-  actionButton: {
-    paddingVertical: 22,
-    paddingHorizontal: 56,
-    borderRadius: 14,
+  errorIcon: {
+    width: 56,
+    height: 56,
+    borderRadius: 28,
+    backgroundColor: color.stopRedBg,
     alignItems: 'center',
     justifyContent: 'center',
-    minWidth: 260,
+    marginBottom: space.lg,
   },
-  actionButtonPressed: {
-    opacity: 0.85,
-  },
-  startButton: {
-    backgroundColor: DANFO,
-  },
-  resumeButton: {
-    backgroundColor: ROUTE_GREEN,
-  },
-  actionButtonText: {
-    color: INK,
-    fontSize: 19,
-    fontWeight: '700',
-    letterSpacing: 1,
+  errorTitle: {
+    fontSize: 18,
+    fontWeight: '800',
+    color: color.ink,
+    marginBottom: space.xs + 2,
   },
   errorText: {
-    fontSize: 16,
-    color: '#9CA3AF',
+    fontSize: 14,
+    color: color.sub,
     textAlign: 'center',
-    marginBottom: 16,
+    lineHeight: 20,
+    marginBottom: space.xl,
   },
   retryButton: {
-    backgroundColor: DANFO,
-    paddingHorizontal: 24,
-    paddingVertical: 12,
-    borderRadius: 8,
+    alignSelf: 'stretch',
+    alignItems: 'center',
+    backgroundColor: color.danfo,
+    borderRadius: radius.md,
+    paddingVertical: space.md + 2,
   },
   retryButtonText: {
-    color: INK,
-    fontWeight: '700',
-    letterSpacing: 1,
+    color: color.ink,
+    fontWeight: '800',
+    fontSize: 15,
+  },
+  pressed: {
+    opacity: 0.85,
   },
 });

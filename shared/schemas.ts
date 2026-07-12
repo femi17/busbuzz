@@ -12,6 +12,21 @@ const uuidSchema = z.string().uuid();
 const latitudeSchema = z.number().min(-90).max(90);
 const longitudeSchema = z.number().min(-180).max(180);
 
+// Nigerian phone numbers must be stored in a single canonical form
+// (+234XXXXXXXXXX) everywhere — driver-login looks up profiles by exact
+// string match, so any inconsistency between where a phone is written
+// (web admin form, mobile app) and where it's read locks the driver out
+// with a misleading "Invalid credentials" error even with the right PIN.
+export function normalizePhone(raw: string): string {
+  const digitsOnly = raw.replace(/\D/g, '');
+  if (digitsOnly.startsWith('234')) {
+    return `+${digitsOnly}`;
+  }
+  return `+234${digitsOnly.replace(/^0+/, '')}`;
+}
+
+const phoneSchema = z.string().min(1).max(30).transform(normalizePhone);
+
 // ----- Enum schemas (mirror shared/types.ts) -----
 
 export const userRoleSchema = z.enum([
@@ -25,7 +40,7 @@ export const busStatusSchema = z.enum(['ACTIVE', 'MAINTENANCE', 'RETIRED']);
 
 export const tripStatusSchema = z.enum(['ACTIVE', 'COMPLETED', 'CANCELLED']);
 
-export const routeTypeSchema = z.enum(['MORNING', 'AFTERNOON']);
+export const routeTypeSchema = z.enum(['MORNING', 'AFTERNOON', 'BOTH']);
 
 export const attendanceStatusSchema = z.enum([
   'BOARDED',
@@ -48,6 +63,20 @@ export const updateSchoolSchema = z.object({
   logoUrl: z.string().url().nullable().optional(),
   isActive: z.boolean().optional(),
 });
+
+export const onboardSchoolSchema = z.object({
+  schoolName: z.string().min(1, 'School name is required').max(200),
+  schoolAddress: z.string().min(1, 'School address is required').max(500),
+  schoolLogoUrl: z.string().url().optional(),
+  adminName: z.string().min(1, 'Admin name is required').max(200),
+  adminEmail: z.string().email('Valid email is required'),
+  adminPassword: z
+    .string()
+    .min(8, 'Password must be at least 8 characters')
+    .max(100),
+});
+
+export type OnboardSchoolInput = z.infer<typeof onboardSchoolSchema>;
 
 // ----- Bus schemas -----
 
@@ -82,7 +111,7 @@ export const createRouteSchema = z.object({
   busId: uuidSchema.optional(),
   name: z.string().min(1).max(200),
   type: routeTypeSchema,
-  stops: z.array(stopInputSchema).min(1),
+  stops: z.array(stopInputSchema),
 });
 
 // ----- Student schemas -----
@@ -146,7 +175,8 @@ export const startTripSchema = z.object({
 export const bulkImportStudentRowSchema = z.object({
   name: z.string().min(1).max(200),
   className: z.string().min(1).max(100),
-  stopName: z.string().min(1).max(200),
+  pickupAddress: z.string().max(500).optional(),
+  routeName: z.string().min(1).max(200),
 });
 
 export const bulkImportStudentSchema = z.object({
@@ -177,7 +207,7 @@ export type GeofenceCheckInput = z.infer<typeof geofenceCheckSchema>;
 // ----- Driver PIN authentication schemas -----
 
 export const driverLoginSchema = z.object({
-  phone: z.string().min(1).max(30),
+  phone: phoneSchema,
   pin: z.string().length(4).regex(/^\d{4}$/, 'PIN must be exactly 4 digits'),
 });
 
@@ -228,6 +258,16 @@ export const updatePushTokenSchema = z.object({
 export type SendPushInput = z.infer<typeof sendPushSchema>;
 export type UpdatePushTokenInput = z.infer<typeof updatePushTokenSchema>;
 
+// ----- Parent-corrected pickup location schema -----
+
+export const updatePickupLocationSchema = z.object({
+  studentId: uuidSchema,
+  lat: latitudeSchema,
+  lng: longitudeSchema,
+});
+
+export type UpdatePickupLocationInput = z.infer<typeof updatePickupLocationSchema>;
+
 // ----- SOS alert schema -----
 
 export const sosAlertSchema = z.object({
@@ -235,6 +275,15 @@ export const sosAlertSchema = z.object({
 });
 
 export type SosAlertInput = z.infer<typeof sosAlertSchema>;
+
+// ----- Driver creation schema -----
+
+export const createDriverSchema = z.object({
+  name: z.string().min(1).max(200),
+  phone: phoneSchema,
+});
+
+export type CreateDriverInput = z.infer<typeof createDriverSchema>;
 
 // ----- Reports schema -----
 

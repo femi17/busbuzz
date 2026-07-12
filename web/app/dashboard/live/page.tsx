@@ -1,9 +1,9 @@
 'use client';
 
 import { useEffect, useRef, useState, useCallback } from 'react';
-import mapboxgl from 'mapbox-gl';
-import 'mapbox-gl/dist/mapbox-gl.css';
 import { createClient } from '@/lib/supabase';
+import { hasGoogleMapsToken, loadGoogleMaps } from '@/lib/google-maps';
+import { DashboardHeader } from '@/components/dashboard/DashboardHeader';
 import type { RealtimeChannel } from '@supabase/supabase-js';
 import type { LocationBroadcast } from '../../../../shared/types';
 
@@ -60,40 +60,44 @@ function relativeStartedTime(startedAt: string): string {
   return `Started ${hours}h ago`;
 }
 
-function createBusElement(color: string): HTMLDivElement {
-  const el = document.createElement('div');
-  el.style.width = '32px';
-  el.style.height = '32px';
-  el.style.display = 'flex';
-  el.style.alignItems = 'center';
-  el.style.justifyContent = 'center';
-  el.style.borderRadius = '50%';
-  el.style.backgroundColor = color;
-  el.style.boxShadow = '0 1px 4px rgba(0,0,0,0.4)';
-  el.style.cursor = 'pointer';
-  el.innerHTML = `
-    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#0F2044" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-      <rect x="3" y="5" width="18" height="12" rx="2" />
-      <path d="M3 11h18" />
-      <circle cx="7.5" cy="19" r="1.5" />
-      <circle cx="16.5" cy="19" r="1.5" />
-    </svg>
-  `;
-  return el;
+function schoolIconUrl(): string {
+  const svg = `
+    <svg xmlns="http://www.w3.org/2000/svg" width="30" height="30" viewBox="0 0 30 30">
+      <rect x="1" y="1" width="28" height="28" rx="8" fill="#0F2044" />
+      <g transform="translate(7,6)" stroke="#FFC900" stroke-width="2.25" stroke-linecap="round" stroke-linejoin="round" fill="none">
+        <path d="M0 7l8-6.2 8 6.2v9.4a1.8 1.8 0 0 1-1.8 1.8H1.8A1.8 1.8 0 0 1 0 16.4z" />
+        <path d="M5.4 17.6v-8h5.2v8" />
+      </g>
+    </svg>`;
+  return `data:image/svg+xml;charset=UTF-8,${encodeURIComponent(svg)}`;
+}
+
+function busIconUrl(color: string): string {
+  const svg = `
+    <svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 32 32">
+      <circle cx="16" cy="16" r="15" fill="${color}" stroke="#fff" stroke-width="0" />
+      <g transform="translate(9,9)" stroke="#0F2044" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" fill="none">
+        <rect x="0" y="2" width="14" height="9" rx="2" />
+        <path d="M0 7h14" />
+        <circle cx="3.5" cy="12.5" r="1.2" fill="#0F2044" stroke="none" />
+        <circle cx="10.5" cy="12.5" r="1.2" fill="#0F2044" stroke="none" />
+      </g>
+    </svg>`;
+  return `data:image/svg+xml;charset=UTF-8,${encodeURIComponent(svg)}`;
 }
 
 function animateMarker(
-  marker: mapboxgl.Marker,
-  from: [number, number],
-  to: [number, number],
+  marker: google.maps.Marker,
+  from: google.maps.LatLngLiteral,
+  to: google.maps.LatLngLiteral,
   duration: number,
 ) {
   const start = performance.now();
   function step(now: number) {
     const t = Math.min((now - start) / duration, 1);
-    const lng = from[0] + (to[0] - from[0]) * t;
-    const lat = from[1] + (to[1] - from[1]) * t;
-    marker.setLngLat([lng, lat]);
+    const lat = from.lat + (to.lat - from.lat) * t;
+    const lng = from.lng + (to.lng - from.lng) * t;
+    marker.setPosition({ lat, lng });
     if (t < 1) requestAnimationFrame(step);
   }
   requestAnimationFrame(step);
@@ -101,14 +105,19 @@ function animateMarker(
 
 export default function LiveMapPage() {
   const mapContainerRef = useRef<HTMLDivElement | null>(null);
-  const mapRef = useRef<mapboxgl.Map | null>(null);
-  const markersRef = useRef<Map<string, mapboxgl.Marker>>(new Map());
+  const mapRef = useRef<google.maps.Map | null>(null);
+  const markersRef = useRef<Map<string, google.maps.Marker>>(new Map());
+  const infoWindowsRef = useRef<Map<string, google.maps.InfoWindow>>(new Map());
   const channelsRef = useRef<Map<string, RealtimeChannel>>(new Map());
   const tripsRef = useRef<Map<string, ActiveTripMarker>>(new Map());
+  const schoolMarkerRef = useRef<google.maps.Marker | null>(null);
 
   const [trips, setTrips] = useState<ActiveTripMarker[]>([]);
   const [loadError, setLoadError] = useState(false);
   const [mapLoaded, setMapLoaded] = useState(false);
+  const [schoolLocation, setSchoolLocation] = useState<google.maps.LatLngLiteral | null>(null);
+  const [schoolAddress, setSchoolAddress] = useState<string | null>(null);
+  const [schoolResolved, setSchoolResolved] = useState(false);
 
   const syncTripsState = useCallback(() => {
     setTrips(Array.from(tripsRef.current.values()));
@@ -117,17 +126,19 @@ export default function LiveMapPage() {
   const updateMarkerVisual = useCallback((trip: ActiveTripMarker) => {
     const marker = markersRef.current.get(trip.busId);
     if (!marker) return;
-    const el = marker.getElement();
-    el.style.backgroundColor = trip.signalLost ? COLOR_SIGNAL_LOST : COLOR_NORMAL;
+    marker.setIcon({
+      url: busIconUrl(trip.signalLost ? COLOR_SIGNAL_LOST : COLOR_NORMAL),
+      scaledSize: new google.maps.Size(32, 32),
+    });
 
-    const popup = marker.getPopup();
-    if (popup) {
+    const infoWindow = infoWindowsRef.current.get(trip.busId);
+    if (infoWindow) {
       const statusText = trip.signalLost
         ? 'Signal lost'
         : trip.lastUpdateTime
           ? relativeTime(trip.lastUpdateTime)
           : 'Waiting for GPS...';
-      popup.setHTML(
+      infoWindow.setContent(
         `<div style="font-family: inherit; font-size: 13px;">
           <div style="font-weight: 700; color: #0F2044;">${trip.plateNumber}</div>
           <div style="color: #0F2044; opacity: 0.7;">${trip.routeName}</div>
@@ -140,9 +151,10 @@ export default function LiveMapPage() {
   const removeTripMarkerAndChannel = useCallback((busId: string, tripId: string) => {
     const marker = markersRef.current.get(busId);
     if (marker) {
-      marker.remove();
+      marker.setMap(null);
       markersRef.current.delete(busId);
     }
+    infoWindowsRef.current.delete(busId);
     const channel = channelsRef.current.get(busId);
     if (channel) {
       channel.unsubscribe();
@@ -156,17 +168,17 @@ export default function LiveMapPage() {
       if (channelsRef.current.has(trip.busId)) return;
       const supabase = createClient();
       const channel = supabase
-        .channel(`bus:${trip.busId}`)
+        .channel(`bus:${trip.busId}`, { config: { private: true } })
         .on('broadcast', { event: 'location_update' }, (message) => {
           const payload = message.payload as LocationBroadcast;
           const current = tripsRef.current.get(trip.tripId);
           if (!current) return;
 
-          const from: [number, number] = [
-            current.lng ?? payload.lng,
-            current.lat ?? payload.lat,
-          ];
-          const to: [number, number] = [payload.lng, payload.lat];
+          const from: google.maps.LatLngLiteral = {
+            lat: current.lat ?? payload.lat,
+            lng: current.lng ?? payload.lng,
+          };
+          const to: google.maps.LatLngLiteral = { lat: payload.lat, lng: payload.lng };
 
           const updated: ActiveTripMarker = {
             ...current,
@@ -183,13 +195,15 @@ export default function LiveMapPage() {
           if (map) {
             let marker = markersRef.current.get(trip.busId);
             if (!marker) {
-              const el = createBusElement(COLOR_NORMAL);
-              const popup = new mapboxgl.Popup({ offset: 18 });
-              marker = new mapboxgl.Marker({ element: el })
-                .setLngLat(to)
-                .setPopup(popup)
-                .addTo(map);
+              const infoWindow = new google.maps.InfoWindow();
+              marker = new google.maps.Marker({
+                position: to,
+                map,
+                icon: { url: busIconUrl(COLOR_NORMAL), scaledSize: new google.maps.Size(32, 32) },
+              });
+              marker.addListener('click', () => infoWindow.open({ map, anchor: marker! }));
               markersRef.current.set(trip.busId, marker);
+              infoWindowsRef.current.set(trip.busId, infoWindow);
             } else {
               animateMarker(marker, from, to, ANIMATION_DURATION_MS);
             }
@@ -213,39 +227,79 @@ export default function LiveMapPage() {
     [removeTripMarkerAndChannel, syncTripsState, updateMarkerVisual],
   );
 
-  // Initial map setup
+  // Load the school's geocoded address — used as the map's starting point before any bus moves
   useEffect(() => {
-    if (!mapContainerRef.current) return;
+    let cancelled = false;
+    async function loadSchool() {
+      const supabase = createClient();
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) { if (!cancelled) setSchoolResolved(true); return; }
+      const { data: profile } = await supabase.from('profiles').select('school_id').eq('id', user.id).single();
+      if (!profile?.school_id) { if (!cancelled) setSchoolResolved(true); return; }
+      const { data: school } = await supabase.from('schools').select('address, latitude, longitude').eq('id', profile.school_id).single();
+      if (cancelled) return;
+      if (school?.latitude != null && school?.longitude != null) {
+        setSchoolLocation({ lat: school.latitude, lng: school.longitude });
+      }
+      setSchoolAddress(school?.address ?? null);
+      setSchoolResolved(true);
+    }
+    loadSchool();
+    return () => { cancelled = true; };
+  }, []);
 
-    mapboxgl.accessToken = process.env.NEXT_PUBLIC_MAPBOX_TOKEN ?? '';
+  // Initial map setup — centers on the school until a bus has GPS data to show instead
+  useEffect(() => {
+    if (!schoolResolved || !mapContainerRef.current || !hasGoogleMapsToken()) return;
+    let cancelled = false;
 
-    const map = new mapboxgl.Map({
-      container: mapContainerRef.current,
-      style: 'mapbox://styles/mapbox/streets-v12',
-      center: [3.3792, 6.5244],
-      zoom: 11,
-    });
+    loadGoogleMaps().then((google) => {
+      if (cancelled || !mapContainerRef.current) return;
 
-    map.addControl(new mapboxgl.NavigationControl(), 'top-right');
+      const map = new google.maps.Map(mapContainerRef.current, {
+        center: schoolLocation ?? { lat: 6.5244, lng: 3.3792 },
+        zoom: schoolLocation ? 13 : 11,
+        zoomControl: true,
+        streetViewControl: false,
+        mapTypeControl: false,
+        fullscreenControl: false,
+      });
 
-    map.on('load', () => {
+      mapRef.current = map;
+
+      if (schoolLocation) {
+        const infoWindow = new google.maps.InfoWindow({
+          content: `<div style="font-family: inherit; font-size: 12px; padding: 2px 0;">
+            <div style="font-weight: 700; color: #0F2044;">School</div>
+            ${schoolAddress ? `<div style="color: #6B6B6B; margin-top: 2px;">${schoolAddress}</div>` : ''}
+          </div>`,
+        });
+        const schoolMarker = new google.maps.Marker({
+          position: schoolLocation,
+          map,
+          icon: { url: schoolIconUrl(), scaledSize: new google.maps.Size(30, 30) },
+        });
+        schoolMarker.addListener('click', () => infoWindow.open({ map, anchor: schoolMarker }));
+        schoolMarkerRef.current = schoolMarker;
+      }
+
       setMapLoaded(true);
     });
-
-    mapRef.current = map;
 
     const markers = markersRef.current;
     const channels = channelsRef.current;
 
     return () => {
-      markers.forEach((marker) => marker.remove());
+      cancelled = true;
+      markers.forEach((marker) => marker.setMap(null));
       markers.clear();
       channels.forEach((channel) => channel.unsubscribe());
       channels.clear();
-      map.remove();
+      schoolMarkerRef.current?.setMap(null);
+      schoolMarkerRef.current = null;
       mapRef.current = null;
     };
-  }, []);
+  }, [schoolResolved, schoolLocation, schoolAddress]);
 
   // Initial data fetch
   useEffect(() => {
@@ -344,14 +398,19 @@ export default function LiveMapPage() {
       if (!trip.hasLocation || trip.lat === null || trip.lng === null) return;
       if (markersRef.current.has(trip.busId)) return;
 
-      const el = createBusElement(trip.signalLost ? COLOR_SIGNAL_LOST : COLOR_NORMAL);
-      const popup = new mapboxgl.Popup({ offset: 18 });
-      const marker = new mapboxgl.Marker({ element: el })
-        .setLngLat([trip.lng, trip.lat])
-        .setPopup(popup)
-        .addTo(map);
+      const infoWindow = new google.maps.InfoWindow();
+      const marker = new google.maps.Marker({
+        position: { lat: trip.lat, lng: trip.lng },
+        map,
+        icon: {
+          url: busIconUrl(trip.signalLost ? COLOR_SIGNAL_LOST : COLOR_NORMAL),
+          scaledSize: new google.maps.Size(32, 32),
+        },
+      });
+      marker.addListener('click', () => infoWindow.open({ map, anchor: marker }));
 
       markersRef.current.set(trip.busId, marker);
+      infoWindowsRef.current.set(trip.busId, infoWindow);
       updateMarkerVisual(trip);
       subscribeToTrip(trip);
     });
@@ -396,75 +455,91 @@ export default function LiveMapPage() {
   const handleTripClick = useCallback((trip: ActiveTripMarker) => {
     const map = mapRef.current;
     if (!map || trip.lat === null || trip.lng === null) return;
-    map.flyTo({ center: [trip.lng, trip.lat], zoom: 15, duration: 1500 });
+    map.panTo({ lat: trip.lat, lng: trip.lng });
+    map.setZoom(15);
   }, []);
 
   return (
-    <div className="-m-6 flex h-[calc(100vh-4rem)]">
-      <div className="relative flex-1">
-        {loadError && (
-          <div className="absolute left-0 right-0 top-0 z-10 bg-red-50 px-4 py-3 text-center text-sm font-medium text-red-600">
-            Failed to load active trips. Please refresh.
-          </div>
-        )}
-        <div ref={mapContainerRef} className="h-full w-full" />
+    <div className="-m-6 flex h-[calc(100vh-4rem)] flex-col">
+      {/* Page header */}
+      <div className="shrink-0 border-b border-navy/10 bg-white px-6 py-5">
+        <DashboardHeader title="Live Map" subtitle="Track every active bus in real time" noMargin />
       </div>
 
-      <div className="w-80 shrink-0 overflow-y-auto border-l border-navy/10 bg-white">
-        <div className="border-b border-navy/10 px-5 py-4">
-          <h2 className="text-base font-bold text-navy">
-            Active Trips ({trips.length})
-          </h2>
+      <div className="flex flex-1 overflow-hidden">
+        <div className="relative flex-1">
+          {loadError && (
+            <div className="absolute left-0 right-0 top-0 z-10 bg-red-50 px-4 py-3 text-center text-sm font-medium text-red-600">
+              Failed to load active trips. Please refresh.
+            </div>
+          )}
+          {hasGoogleMapsToken() ? (
+            <div ref={mapContainerRef} className="h-full w-full" />
+          ) : (
+            <div className="flex h-full items-center justify-center bg-white">
+              <p className="text-sm text-navy/50">
+                Google Maps token not configured. Add NEXT_PUBLIC_GOOGLEMAP_TOKEN to your .env.local file to enable the map.
+              </p>
+            </div>
+          )}
         </div>
 
-        {trips.length === 0 ? (
-          <div className="px-5 py-10 text-center text-sm text-navy/50">
-            No active trips right now. Trips will appear here when drivers
-            start their routes.
+        <div className="w-80 shrink-0 overflow-y-auto border-l border-navy/10 bg-white">
+          <div className="border-b border-navy/10 px-5 py-4">
+            <h2 className="text-base font-bold text-navy">
+              Active Trips ({trips.length})
+            </h2>
           </div>
-        ) : (
-          <ul className="divide-y divide-navy/5">
-            {trips.map((trip) => {
-              const dotColor = trip.signalLost
-                ? '#9CA3AF'
-                : trip.hasLocation
-                  ? '#22C55E'
-                  : '#F5A623';
 
-              return (
-                <li key={trip.tripId}>
-                  <button
-                    type="button"
-                    onClick={() => handleTripClick(trip)}
-                    className="flex w-full flex-col gap-1.5 px-5 py-4 text-left transition-colors hover:bg-gray-50"
-                  >
-                    <div className="flex items-center gap-2">
-                      <span
-                        className="inline-block h-2 w-2 shrink-0 rounded-full"
-                        style={{ backgroundColor: dotColor }}
-                      />
-                      <span className="font-bold text-navy">{trip.plateNumber}</span>
-                    </div>
-                    <div className="flex items-center gap-2 text-sm text-navy/70">
-                      <span>{trip.routeName}</span>
-                      <span className="inline-flex rounded-full bg-amber/15 px-2 py-0.5 text-xs font-semibold text-amber-dark">
-                        {trip.routeType === 'MORNING' ? 'AM' : 'PM'}
-                      </span>
-                    </div>
-                    <div className="text-xs text-navy/50">
-                      {trip.studentCount} students
-                    </div>
-                    <div className="text-xs text-navy/50">
-                      {!trip.hasLocation
-                        ? 'Waiting for GPS...'
-                        : relativeStartedTime(trip.startedAt)}
-                    </div>
-                  </button>
-                </li>
-              );
-            })}
-          </ul>
-        )}
+          {trips.length === 0 ? (
+            <div className="px-5 py-10 text-center text-sm text-navy/50">
+              No active trips right now. Trips will appear here when drivers
+              start their routes.
+            </div>
+          ) : (
+            <ul className="divide-y divide-navy/5">
+              {trips.map((trip) => {
+                const dotColor = trip.signalLost
+                  ? '#9CA3AF'
+                  : trip.hasLocation
+                    ? '#22C55E'
+                    : '#F5A623';
+
+                return (
+                  <li key={trip.tripId}>
+                    <button
+                      type="button"
+                      onClick={() => handleTripClick(trip)}
+                      className="flex w-full flex-col gap-1.5 px-5 py-4 text-left transition-colors hover:bg-gray-50"
+                    >
+                      <div className="flex items-center gap-2">
+                        <span
+                          className="inline-block h-2 w-2 shrink-0 rounded-full"
+                          style={{ backgroundColor: dotColor }}
+                        />
+                        <span className="font-bold text-navy">{trip.plateNumber}</span>
+                      </div>
+                      <div className="flex items-center gap-2 text-sm text-navy/70">
+                        <span>{trip.routeName}</span>
+                        <span className="inline-flex rounded-full bg-amber/15 px-2 py-0.5 text-xs font-semibold text-amber-dark">
+                          {trip.routeType === 'MORNING' ? 'AM' : 'PM'}
+                        </span>
+                      </div>
+                      <div className="text-xs text-navy/50">
+                        {trip.studentCount} students
+                      </div>
+                      <div className="text-xs text-navy/50">
+                        {!trip.hasLocation
+                          ? 'Waiting for GPS...'
+                          : relativeStartedTime(trip.startedAt)}
+                      </div>
+                    </button>
+                  </li>
+                );
+              })}
+            </ul>
+          )}
+        </div>
       </div>
     </div>
   );

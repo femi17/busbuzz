@@ -3,132 +3,85 @@
 import { useEffect, useState, type FormEvent } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
-import { z } from 'zod';
+import { motion, useReducedMotion } from 'framer-motion';
+import { Check, ArrowRight } from 'lucide-react';
 import { createClient } from '@/lib/supabase';
+import { createPhotoSignedUrl } from '@/lib/photos';
 import { createStudentSchema } from '../../../../../shared/schemas';
+import { PhotoUpload } from '@/components/dashboard/PhotoUpload';
+import { ParentInviteForm } from '@/components/dashboard/ParentInviteForm';
+import { AddressAutocompleteInput } from '@/components/dashboard/AddressAutocompleteInput';
+import { geocodeAddress } from '@/lib/google-maps';
 
-const newStudentFormSchema = createStudentSchema.omit({
-  schoolId: true,
-  photoUrl: true,
-});
+const newStudentFormSchema = createStudentSchema.omit({ schoolId: true, photoUrl: true, stopId: true, medicalNotes: true });
 
-type FormErrors = Partial<
-  Record<'name' | 'className' | 'routeId' | 'stopId' | 'medicalNotes', string>
->;
+type FormErrors = Partial<Record<'name' | 'className' | 'routeId', string>>;
 
-type RouteOption = {
-  id: string;
-  name: string;
-  type: 'MORNING' | 'AFTERNOON';
-  stops: { id: string; name: string; sequence: number }[];
-};
+type RouteOption = { id: string; name: string };
 
-type InvitedParent = {
-  email: string;
-};
-
-const inviteEmailSchema = z.string().email('Enter a valid email address');
+const inputClass = 'w-full rounded-[var(--radius-btn)] border border-rule px-3 py-2.5 text-sm text-ink placeholder:text-sub focus:border-amber focus:outline-none focus:ring-1 focus:ring-amber disabled:bg-canvas disabled:opacity-60 disabled:cursor-not-allowed';
+const labelClass = 'block text-sm font-medium text-ink mb-1.5';
 
 export default function NewStudentPage() {
   const router = useRouter();
-
+  const prefersReducedMotion = useReducedMotion();
   const [name, setName] = useState('');
   const [className, setClassName] = useState('');
+  const [pickupAddress, setPickupAddress] = useState('');
+  const [pickupCoords, setPickupCoords] = useState<{ lat: number; lng: number } | null>(null);
   const [routeId, setRouteId] = useState('');
-  const [stopId, setStopId] = useState('');
-  const [medicalNotes, setMedicalNotes] = useState('');
   const [routes, setRoutes] = useState<RouteOption[]>([]);
   const [errors, setErrors] = useState<FormErrors>({});
   const [formError, setFormError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
-
-  const [createdStudentId, setCreatedStudentId] = useState<string | null>(
-    null,
-  );
-
-  const [parentEmail, setParentEmail] = useState('');
-  const [parentName, setParentName] = useState('');
-  const [inviteError, setInviteError] = useState<string | null>(null);
-  const [isInviting, setIsInviting] = useState(false);
-  const [invitedParents, setInvitedParents] = useState<InvitedParent[]>([]);
+  const [createdStudentId, setCreatedStudentId] = useState<string | null>(null);
+  const [createdStudentName, setCreatedStudentName] = useState('');
+  const [photoFile, setPhotoFile] = useState<File | null>(null);
+  const [photoPreview, setPhotoPreview] = useState<string | null>(null);
 
   useEffect(() => {
     async function loadRoutes() {
       const supabase = createClient();
-      const { data } = await supabase
-        .from('routes')
-        .select('id, name, type, stops(id, name, sequence)')
-        .order('name');
+      const { data } = await supabase.from('routes').select('id, name').order('name');
       setRoutes((data ?? []) as RouteOption[]);
     }
     loadRoutes();
   }, []);
 
-  const selectedRoute = routes.find((route) => route.id === routeId);
-  const sortedStops = selectedRoute
-    ? [...selectedRoute.stops].sort((a, b) => a.sequence - b.sequence)
-    : [];
+  const studentCreated = createdStudentId !== null;
+  const stepIndex = studentCreated ? 1 : 0;
 
   async function handleSubmit(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
     setFormError(null);
     setErrors({});
-
-    const parseResult = newStudentFormSchema.safeParse({
-      name,
-      className,
-      routeId: routeId || undefined,
-      stopId: stopId || undefined,
-      medicalNotes: medicalNotes || undefined,
-    });
-
+    const parseResult = newStudentFormSchema.safeParse({ name, className, routeId: routeId || undefined });
     if (!parseResult.success) {
       const fieldErrors: FormErrors = {};
       for (const issue of parseResult.error.issues) {
         const field = issue.path[0] as keyof FormErrors;
-        if (field && !fieldErrors[field]) {
-          fieldErrors[field] = issue.message;
-        }
+        if (field && !fieldErrors[field]) fieldErrors[field] = issue.message;
       }
       setErrors(fieldErrors);
       return;
     }
-
     setIsSubmitting(true);
     try {
       const supabase = createClient();
       const { data: sessionData } = await supabase.auth.getSession();
       const accessToken = sessionData.session?.access_token;
-
-      const response = await fetch(
-        `${process.env.NEXT_PUBLIC_SUPABASE_URL}/functions/v1/manage-student`,
-        {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            Authorization: `Bearer ${accessToken}`,
-            apikey: process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-          },
-          body: JSON.stringify({
-            action: 'create',
-            name: parseResult.data.name,
-            className: parseResult.data.className,
-            routeId: parseResult.data.routeId || undefined,
-            stopId: parseResult.data.stopId || undefined,
-            medicalNotes: parseResult.data.medicalNotes || undefined,
-          }),
-        },
-      );
-
+      const response = await fetch(`${process.env.NEXT_PUBLIC_SUPABASE_URL}/functions/v1/manage-student`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${accessToken}`, apikey: process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY! },
+        body: JSON.stringify({ action: 'create', name: parseResult.data.name, className: parseResult.data.className, routeId: parseResult.data.routeId || undefined }),
+      });
       if (!response.ok) {
         const errorBody = await response.json().catch(() => null);
         if (errorBody?.details && Array.isArray(errorBody.details)) {
           const fieldErrors: FormErrors = {};
           for (const issue of errorBody.details) {
             const field = issue.path?.[0] as keyof FormErrors;
-            if (field && !fieldErrors[field]) {
-              fieldErrors[field] = issue.message;
-            }
+            if (field && !fieldErrors[field]) fieldErrors[field] = issue.message;
           }
           setErrors(fieldErrors);
         } else {
@@ -136,281 +89,158 @@ export default function NewStudentPage() {
         }
         return;
       }
-
       const successBody = await response.json();
-      setCreatedStudentId(successBody.data.id);
+      const studentId: string = successBody.data.id;
+
+      const updates: Record<string, unknown> = {};
+
+      // Upload photo if selected
+      if (photoFile) {
+        const supabase = createClient();
+        const ext = photoFile.name.split('.').pop() ?? 'jpg';
+        const path = `students/${studentId}.${ext}`;
+        const { error: uploadError } = await supabase.storage
+          .from('photos')
+          .upload(path, photoFile, { upsert: true, contentType: photoFile.type });
+
+        if (uploadError) {
+          setFormError(`Photo upload failed: ${uploadError.message}`);
+          setIsSubmitting(false);
+          return;
+        }
+        updates.photo_url = await createPhotoSignedUrl(supabase, path);
+      }
+
+      // Persist pickup address + coords. If the admin typed an address without
+      // picking a suggestion, fall back to a best-effort geocode so we still
+      // end up with a real map location, not just free text.
+      if (pickupAddress.trim()) {
+        updates.pickup_address = pickupAddress.trim();
+        const coords = pickupCoords ?? await geocodeAddress(pickupAddress.trim());
+        if (coords) {
+          updates.pickup_lat = coords.lat;
+          updates.pickup_lng = coords.lng;
+        }
+      }
+
+      if (Object.keys(updates).length > 0) {
+        await supabase.from('students').update(updates).eq('id', studentId);
+      }
+
+      setCreatedStudentName(parseResult.data.name);
+      setCreatedStudentId(studentId);
     } finally {
       setIsSubmitting(false);
     }
   }
 
-  async function handleInvite(e: FormEvent<HTMLFormElement>) {
-    e.preventDefault();
-    setInviteError(null);
-
-    const emailParse = inviteEmailSchema.safeParse(parentEmail);
-    if (!emailParse.success) {
-      setInviteError(emailParse.error.issues[0]?.message ?? 'Invalid email');
-      return;
-    }
-
-    if (!createdStudentId) return;
-
-    setIsInviting(true);
-    try {
-      const supabase = createClient();
-      const { data: sessionData } = await supabase.auth.getSession();
-      const accessToken = sessionData.session?.access_token;
-
-      const response = await fetch(
-        `${process.env.NEXT_PUBLIC_SUPABASE_URL}/functions/v1/manage-student`,
-        {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            Authorization: `Bearer ${accessToken}`,
-            apikey: process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-          },
-          body: JSON.stringify({
-            action: 'invite-parent',
-            studentId: createdStudentId,
-            parentEmail: emailParse.data,
-            parentName: parentName || undefined,
-          }),
-        },
-      );
-
-      if (!response.ok) {
-        const errorBody = await response.json().catch(() => null);
-        setInviteError(errorBody?.error ?? 'Failed to invite parent');
-        return;
-      }
-
-      setInvitedParents((prev) => [...prev, { email: emailParse.data }]);
-      setParentEmail('');
-      setParentName('');
-    } finally {
-      setIsInviting(false);
-    }
-  }
-
-  const studentCreated = createdStudentId !== null;
+  const stepTransition = {
+    initial: { opacity: 0, x: prefersReducedMotion ? 0 : 16 },
+    animate: { opacity: 1, x: 0 },
+    transition: { duration: prefersReducedMotion ? 0 : 0.32, ease: [0.22, 1, 0.36, 1] as const },
+  };
 
   return (
-    <div className="mx-auto mt-4 max-w-lg rounded-xl border border-navy/10 bg-white p-6 shadow-sm">
-      <h2 className="text-lg font-bold text-navy">Add New Student</h2>
+    <div className="max-w-[1200px] mx-auto">
+      <div className="mb-6">
+        <h1 className="font-heading font-bold text-[28px] tracking-tight text-ink">Add New Student</h1>
+        <p className="text-sm text-sub mt-1">Enrol a student and assign them to a route</p>
+      </div>
 
-      {studentCreated && (
-        <div className="mt-4 rounded-lg bg-green-50 border border-green-200 text-green-700 text-sm px-4 py-3">
-          Student created successfully. You can now invite parents below.
-        </div>
-      )}
-
-      <form onSubmit={handleSubmit} className="mt-5 flex flex-col gap-4">
-        {formError && (
-          <div className="rounded-lg bg-red-50 border border-red-200 text-red-700 text-sm px-4 py-3">
-            {formError}
+      <div className="mx-auto max-w-lg bg-surface shadow-[var(--shadow-card)] rounded-[var(--radius-card)] p-6">
+        {/* Route-line step indicator: two stops on the enrolment "route" */}
+        <div className="mb-8 flex items-start" aria-hidden="true">
+          <div className="flex w-28 shrink-0 flex-col items-center gap-2">
+            <div className={`flex h-9 w-9 items-center justify-center rounded-full border-2 transition-colors duration-300 ${stepIndex > 0 ? 'border-amber bg-amber text-navy' : 'border-navy bg-navy text-amber-light'}`}>
+              {stepIndex > 0 ? <Check size={16} strokeWidth={2.5} /> : <span className="board-figure text-[13px] font-semibold">01</span>}
+            </div>
+            <span className={`text-[12px] font-medium text-center ${stepIndex === 0 ? 'text-ink' : 'text-sub'}`}>Student details</span>
           </div>
-        )}
-
-        <div>
-          <label className="block text-sm font-medium text-navy mb-1.5">
-            Student Name
-          </label>
-          <input
-            type="text"
-            value={name}
-            onChange={(e) => setName(e.target.value)}
-            disabled={studentCreated}
-            placeholder="e.g., Chidi Okafor"
-            className="w-full rounded-lg border border-navy/20 px-3 py-2.5 text-sm text-navy placeholder:text-navy/40 focus:border-amber focus:outline-none focus:ring-1 focus:ring-amber disabled:bg-gray-50 disabled:text-navy/50"
-          />
-          {errors.name && (
-            <p className="text-xs text-red-500 mt-1">{errors.name}</p>
-          )}
-        </div>
-
-        <div>
-          <label className="block text-sm font-medium text-navy mb-1.5">
-            Class Name
-          </label>
-          <input
-            type="text"
-            value={className}
-            onChange={(e) => setClassName(e.target.value)}
-            disabled={studentCreated}
-            placeholder="e.g., JSS1"
-            className="w-full rounded-lg border border-navy/20 px-3 py-2.5 text-sm text-navy placeholder:text-navy/40 focus:border-amber focus:outline-none focus:ring-1 focus:ring-amber disabled:bg-gray-50 disabled:text-navy/50"
-          />
-          {errors.className && (
-            <p className="text-xs text-red-500 mt-1">{errors.className}</p>
-          )}
-        </div>
-
-        <div>
-          <label className="block text-sm font-medium text-navy mb-1.5">
-            Route
-          </label>
-          <select
-            value={routeId}
-            onChange={(e) => {
-              setRouteId(e.target.value);
-              setStopId('');
-            }}
-            disabled={studentCreated}
-            className="w-full rounded-lg border border-navy/20 px-3 py-2.5 text-sm text-navy focus:border-amber focus:outline-none focus:ring-1 focus:ring-amber disabled:bg-gray-50 disabled:text-navy/50"
-          >
-            <option value="">No route assigned</option>
-            {routes.map((route) => (
-              <option key={route.id} value={route.id}>
-                {route.name} ({route.type})
-              </option>
-            ))}
-          </select>
-          {errors.routeId && (
-            <p className="text-xs text-red-500 mt-1">{errors.routeId}</p>
-          )}
-        </div>
-
-        <div>
-          <label className="block text-sm font-medium text-navy mb-1.5">
-            Stop
-          </label>
-          <select
-            value={stopId}
-            onChange={(e) => setStopId(e.target.value)}
-            disabled={studentCreated || !routeId}
-            className="w-full rounded-lg border border-navy/20 px-3 py-2.5 text-sm text-navy focus:border-amber focus:outline-none focus:ring-1 focus:ring-amber disabled:bg-gray-50 disabled:text-navy/50"
-          >
-            <option value="">No stop assigned</option>
-            {sortedStops.map((stop) => (
-              <option key={stop.id} value={stop.id}>
-                {stop.sequence}. {stop.name}
-              </option>
-            ))}
-          </select>
-          {errors.stopId && (
-            <p className="text-xs text-red-500 mt-1">{errors.stopId}</p>
-          )}
-        </div>
-
-        <div>
-          <label className="block text-sm font-medium text-navy mb-1.5">
-            Medical Notes
-          </label>
-          <textarea
-            value={medicalNotes}
-            onChange={(e) => setMedicalNotes(e.target.value)}
-            disabled={studentCreated}
-            placeholder="Allergies, conditions, etc."
-            rows={3}
-            className="w-full rounded-lg border border-navy/20 px-3 py-2.5 text-sm text-navy placeholder:text-navy/40 focus:border-amber focus:outline-none focus:ring-1 focus:ring-amber disabled:bg-gray-50 disabled:text-navy/50"
-          />
-          {errors.medicalNotes && (
-            <p className="text-xs text-red-500 mt-1">{errors.medicalNotes}</p>
-          )}
-        </div>
-
-        {!studentCreated && (
-          <div className="flex justify-end gap-3 mt-2">
-            <Link
-              href="/dashboard/students"
-              className="rounded-lg border border-navy/20 px-4 py-2.5 text-sm font-medium text-navy/70"
-            >
-              Cancel
-            </Link>
-            <button
-              type="submit"
-              disabled={isSubmitting}
-              className="rounded-lg bg-amber px-4 py-2.5 text-sm font-semibold text-navy disabled:cursor-not-allowed disabled:opacity-60"
-            >
-              {isSubmitting ? 'Adding...' : 'Add Student'}
-            </button>
+          <div className={`mt-[18px] h-[2px] flex-1 rounded-full bg-rule overflow-hidden ${prefersReducedMotion ? '' : 'transition-all duration-500 ease-out'}`}>
+            <div className="h-full bg-amber" style={{ width: stepIndex > 0 ? '100%' : '0%', transition: prefersReducedMotion ? 'none' : 'width 500ms ease-out' }} />
           </div>
-        )}
-      </form>
+          <div className="flex w-28 shrink-0 flex-col items-center gap-2">
+            <div className={`flex h-9 w-9 items-center justify-center rounded-full border-2 transition-colors duration-300 ${stepIndex === 1 ? 'border-navy bg-navy text-amber-light' : 'border-rule bg-surface text-sub'}`}>
+              <span className="board-figure text-[13px] font-semibold">02</span>
+            </div>
+            <span className={`text-[12px] font-medium text-center ${stepIndex === 1 ? 'text-ink' : 'text-sub'}`}>Invite parents</span>
+          </div>
+        </div>
 
-      <hr className="my-6 border-navy/10" />
+        {stepIndex === 0 && (
+          <motion.form key="details" onSubmit={handleSubmit} className="flex flex-col gap-4" {...stepTransition}>
+            {formError && <div className="rounded-[var(--radius-btn)] bg-red-bg border border-red/30 text-red text-sm px-4 py-3">{formError}</div>}
 
-      <div>
-        <h3 className="text-base font-semibold text-navy">Invite Parents</h3>
-        <p className="text-sm text-navy/60 mt-1">
-          Parents will receive an email invitation to download the app and
-          track this student&apos;s bus.
-        </p>
+            <div className="flex justify-center pb-1">
+              <PhotoUpload
+                previewUrl={photoPreview}
+                name={name || 'S'}
+                size={88}
+                onChange={(file) => { setPhotoFile(file); setPhotoPreview(URL.createObjectURL(file)); }}
+              />
+            </div>
 
-        {!studentCreated ? (
-          <p className="mt-4 text-sm italic text-navy/40">
-            Save the student first to invite parents.
-          </p>
-        ) : (
-          <div className="mt-4 flex flex-col gap-4">
-            <form onSubmit={handleInvite} className="flex flex-col gap-3">
-              {inviteError && (
-                <div className="rounded-lg bg-red-50 border border-red-200 text-red-700 text-sm px-4 py-3">
-                  {inviteError}
-                </div>
-              )}
+            <div>
+              <label className={labelClass}>Student Name</label>
+              <input type="text" value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g., Chidi Okafor" className={inputClass} />
+              {errors.name && <p className="text-xs text-red mt-1">{errors.name}</p>}
+            </div>
 
-              <div>
-                <label className="block text-sm font-medium text-navy mb-1.5">
-                  Parent Email
-                </label>
-                <input
-                  type="email"
-                  value={parentEmail}
-                  onChange={(e) => setParentEmail(e.target.value)}
-                  placeholder="parent@example.com"
-                  className="w-full rounded-lg border border-navy/20 px-3 py-2.5 text-sm text-navy placeholder:text-navy/40 focus:border-amber focus:outline-none focus:ring-1 focus:ring-amber"
-                />
-              </div>
+            <div>
+              <label className={labelClass}>Class Name</label>
+              <input type="text" value={className} onChange={(e) => setClassName(e.target.value)} placeholder="e.g., JSS1" className={inputClass} />
+              {errors.className && <p className="text-xs text-red mt-1">{errors.className}</p>}
+            </div>
 
-              <div>
-                <label className="block text-sm font-medium text-navy mb-1.5">
-                  Parent Name (optional)
-                </label>
-                <input
-                  type="text"
-                  value={parentName}
-                  onChange={(e) => setParentName(e.target.value)}
-                  placeholder="e.g., Mrs. Okafor"
-                  className="w-full rounded-lg border border-navy/20 px-3 py-2.5 text-sm text-navy placeholder:text-navy/40 focus:border-amber focus:outline-none focus:ring-1 focus:ring-amber"
-                />
-              </div>
+            <div>
+              <label className={labelClass}>Pickup Address <span className="text-sub font-normal">(optional)</span></label>
+              <AddressAutocompleteInput
+                value={pickupAddress}
+                onChange={(address, coords) => { setPickupAddress(address); setPickupCoords(coords); }}
+                placeholder="e.g., 14 Awolowo Road, Ikoyi"
+                className={inputClass}
+              />
+            </div>
 
-              <button
-                type="submit"
-                disabled={isInviting || !parentEmail}
-                className="self-start rounded-lg bg-amber px-4 py-2.5 text-sm font-semibold text-navy disabled:cursor-not-allowed disabled:opacity-60"
-              >
-                {isInviting ? 'Sending...' : 'Send Invite'}
-              </button>
-            </form>
+            <div>
+              <label className={labelClass}>Route</label>
+              <select value={routeId} onChange={(e) => setRouteId(e.target.value)} className={inputClass}>
+                <option value="">No route assigned</option>
+                {routes.map((r) => <option key={r.id} value={r.id}>{r.name}</option>)}
+              </select>
+              {errors.routeId && <p className="text-xs text-red mt-1">{errors.routeId}</p>}
+            </div>
 
-            {invitedParents.length > 0 && (
-              <div className="flex flex-col gap-2">
-                {invitedParents.map((parent) => (
-                  <div
-                    key={parent.email}
-                    className="flex items-center gap-2 rounded-lg border border-navy/10 px-3 py-2 text-sm text-navy"
-                  >
-                    <span className="text-green-600">&#10003;</span>
-                    {parent.email}
-                  </div>
-                ))}
-              </div>
-            )}
-
-            <div className="flex justify-end mt-2">
-              <button
-                type="button"
-                onClick={() => router.push('/dashboard/students?created=1')}
-                className="rounded-lg border border-navy/20 px-4 py-2.5 text-sm font-medium text-navy"
-              >
-                Done
+            <div className="flex justify-end gap-3 mt-2">
+              <Link href="/dashboard/students" className="rounded-[var(--radius-btn)] border border-rule px-4 py-2.5 text-sm font-medium text-sub hover:bg-canvas transition-colors duration-150 active:scale-95">
+                Cancel
+              </Link>
+              <button type="submit" disabled={isSubmitting} className="flex items-center gap-1.5 rounded-[var(--radius-btn)] bg-amber px-4 py-2.5 text-sm font-semibold text-navy hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-60 active:scale-95 transition-all duration-150">
+                {isSubmitting ? 'Saving...' : <>Continue <ArrowRight size={16} /></>}
               </button>
             </div>
-          </div>
+          </motion.form>
+        )}
+
+        {stepIndex === 1 && (
+          <motion.div key="invite" {...stepTransition}>
+            <div className="mb-4 rounded-[var(--radius-btn)] bg-green-bg border border-green/20 text-green text-sm px-4 py-3">
+              {createdStudentName} was added. Invite their parents to start tracking.
+            </div>
+
+            <h3 className="text-[16px] font-semibold text-ink">Invite Parents</h3>
+            <p className="text-sm text-sub mt-1">Search for a parent already using BusBuzz, or invite a new one by email.</p>
+
+            <div className="mt-4 flex flex-col gap-4">
+              <ParentInviteForm studentId={createdStudentId!} />
+
+              <div className="flex justify-end mt-2">
+                <button type="button" onClick={() => router.push('/dashboard/students?created=1')} className="flex items-center gap-1.5 rounded-[var(--radius-btn)] bg-amber px-4 py-2.5 text-sm font-semibold text-navy hover:brightness-110 active:scale-95 transition-all duration-150">
+                  Finish <Check size={16} strokeWidth={2.5} />
+                </button>
+              </div>
+            </div>
+          </motion.div>
         )}
       </div>
     </div>

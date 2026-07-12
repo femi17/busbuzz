@@ -2,6 +2,9 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as Location from 'expo-location';
 import * as TaskManager from 'expo-task-manager';
 
+import { supabase } from '../../lib/supabase';
+import { color } from './theme';
+
 export const GPS_TASK_NAME = 'busbuzz-gps-broadcast';
 
 const GPS_CONTEXT_KEY = '@busbuzz_gps_context';
@@ -33,7 +36,21 @@ async function postGpsUpdate(payload: GpsPayload): Promise<boolean> {
     return false;
   }
 
-  const accessToken = await AsyncStorage.getItem(ACCESS_TOKEN_KEY);
+  // Prefer a live session token — getSession() refreshes an expired one, so a
+  // long trip (past the ~1h token life) keeps broadcasting. Fall back to the
+  // last-stored token only if the session can't be read.
+  let accessToken: string | null = null;
+  try {
+    const {
+      data: { session },
+    } = await supabase.auth.getSession();
+    accessToken = session?.access_token ?? null;
+  } catch {
+    accessToken = null;
+  }
+  if (!accessToken) {
+    accessToken = await AsyncStorage.getItem(ACCESS_TOKEN_KEY);
+  }
   if (!accessToken) {
     return false;
   }
@@ -174,7 +191,7 @@ export async function startGPSBroadcast(
     foregroundService: {
       notificationTitle: 'BusBuzz',
       notificationBody: 'Broadcasting GPS location',
-      notificationColor: '#2196F3',
+      notificationColor: color.danfo,
     },
     pausesUpdatesAutomatically: false,
     activityType: Location.ActivityType.AutomotiveNavigation,
@@ -190,4 +207,19 @@ export async function stopGPSBroadcast(): Promise<void> {
   }
 
   await AsyncStorage.removeItem(GPS_CONTEXT_KEY);
+}
+
+export type GpsStatus = 'live' | 'syncing' | 'stopped';
+
+// Derived from existing state rather than tracked separately: no context means
+// no trip is broadcasting, and a non-empty retry queue means the last ping(s)
+// failed to reach the server and are waiting to be resent.
+export async function getGpsStatus(): Promise<GpsStatus> {
+  const context = await AsyncStorage.getItem(GPS_CONTEXT_KEY);
+  if (!context) return 'stopped';
+
+  const queueRaw = await AsyncStorage.getItem(GPS_QUEUE_KEY);
+  const queue: unknown[] = queueRaw ? JSON.parse(queueRaw) : [];
+
+  return queue.length > 0 ? 'syncing' : 'live';
 }

@@ -13,6 +13,12 @@
       "runtimeExecutable": "npm",
       "runtimeArgs": ["start", "--prefix", "mobile"],
       "port": 8081
+    },
+    {
+      "name": "abremovals",
+      "runtimeExecutable": "C:\\wamp\\bin\\php\\php7.4.9\\php.exe",
+      "runtimeArgs": ["-S", "localhost:8787", "-t", "C:\\wamp\\www\\abremovals"],
+      "port": 8787
     }
   ]
 }

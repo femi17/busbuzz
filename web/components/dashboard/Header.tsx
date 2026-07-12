@@ -9,6 +9,7 @@ const titlesByPath: Record<string, string> = {
   '/dashboard/routes': 'Routes',
   '/dashboard/students': 'Students',
   '/dashboard/users': 'Users',
+  '/dashboard/reports': 'Reports',
   '/dashboard/settings': 'Settings',
 };
 

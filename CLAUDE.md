@@ -64,8 +64,8 @@ busbuzz/
 | Real-time GPS | Supabase Realtime | Free (200 concurrent) | Channels keyed by busId |
 | API / backend | Supabase Edge Functions | Free (500k calls/mo) | Deno TypeScript, no server to manage |
 | Mobile (parent + driver) | React Native + Expo SDK 51 | Free | Single codebase, two app configs |
-| Mobile maps (parent app) | react-native-maps | Free | Uses native Google Maps (Android) + Apple Maps (iOS). Zero tile costs |
-| Web admin maps | Mapbox GL JS | Free tier (50k loads/mo) | Only used in web dashboard — low load count |
+| Mobile maps (parent app) | Mapbox (@rnmapbox/maps) | Free tier (50k loads/mo) then usage-based | Switched back from react-native-maps/Google Maps SDK for Android after persistent map-not-rendering issues tied to Google Cloud Console key/billing setup. Needs a native rebuild (not Expo Go) — requires both a public token (`EXPO_PUBLIC_MAPBOX_TOKEN`) and a secret downloads token (`RNMAPBOX_MAPS_DOWNLOAD_TOKEN`, build-time only) |
+| Web admin maps | Google Maps JavaScript API + Places | $200/mo free credit (~28k loads) | Only used in web dashboard — low load count. Web dashboard was on Mapbox before this, switched to Google for better Lagos coverage. Independent of the mobile maps choice above — the two don't need to match |
 | Push notifications | Expo Push Notification Service | Free | Handles both Android (FCM) and iOS (APNS) via Expo |
 | Web hosting | Vercel | Free | Next.js deploys in seconds |
 | Driver GPS | expo-location (background) | Free | Built into Expo — no hardware needed |
@@ -82,7 +82,7 @@ busbuzz/
 ```
 NEXT_PUBLIC_SUPABASE_URL=           # From Supabase → Settings → API → Project URL
 NEXT_PUBLIC_SUPABASE_ANON_KEY=      # From Supabase → Settings → API → anon public key
-NEXT_PUBLIC_MAPBOX_TOKEN=           # From Mapbox → Tokens (for web admin map)
+NEXT_PUBLIC_GOOGLEMAP_TOKEN=        # From Google Cloud Console → Credentials (Maps JavaScript API + Places API, for web admin map)
 SUPABASE_SERVICE_ROLE_KEY=          # From Supabase → Settings → API → service_role (server only, never expose to client)
 ```
 
@@ -99,6 +99,7 @@ EXPO_PUBLIC_GEOFENCE_RADIUS_M=300   # Metres from stop to trigger approach alert
 SUPABASE_URL=                       # Auto-injected by Supabase in Edge Functions
 SUPABASE_SERVICE_ROLE_KEY=          # Auto-injected by Supabase in Edge Functions
 EXPO_PUSH_URL=https://exp.host/--/api/v2/push/send
+GOOGLE_MAPS_API_KEY=                # Server-side Google Geocoding API key (school address -> coordinates). Use a separate, IP-restricted key from NEXT_PUBLIC_GOOGLEMAP_TOKEN.
 ```
 
 ---
@@ -456,8 +457,8 @@ export interface ApiResponse<T> {
 - Mobile: functional components, hooks for all state, no class components
 - Web: Server Components for data fetching, Client Components only where interactivity needed
 - Zod validates all inputs before any DB operation — schemas live in shared/schemas.ts
-- Maps on mobile: react-native-maps only (no Mapbox on mobile — tile costs)
-- Maps on web: Mapbox GL JS only (low load count in admin dashboard)
+- Maps on mobile: `@rnmapbox/maps` only (react-native-maps/Google Maps SDK for Android was dropped — see tech stack table)
+- Maps on web: Google Maps JavaScript API + Places library only (low load count in admin dashboard)
 - Never log sensitive data (tokens, emails) — console.log allowed in development only
 
 ---
@@ -569,8 +570,8 @@ adb install busbuzz-driver.apk
 | >500k Edge Function calls/month | Upgrade Supabase to Pro (included) |
 | >1GB file storage | Upgrade Supabase to Pro (8GB included) |
 | >10 schools / 500+ buses | Consider splitting schools across Supabase projects for Realtime isolation |
-| >50k map loads/month (web) | Mapbox billing kicks in (~$0.50 per 1k loads above free tier) |
-| Android maps billing | Google Maps SDK free up to $200 credit/mo (~28k loads). Monitor in Google Cloud Console |
+| Web maps billing | Google Maps JS API — web dashboard only now, has the full $200/mo free credit (~28k loads) to itself since mobile moved off Google Maps. Monitor in Google Cloud Console |
+| Mobile maps billing | Mapbox free tier covers 50k map loads/mo. Monitor in the Mapbox account dashboard, not Google Cloud Console |
 
 ---
 

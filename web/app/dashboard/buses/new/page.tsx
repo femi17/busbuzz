@@ -18,6 +18,9 @@ const busFormSchema = z.object({
 
 type FormErrors = Partial<Record<'plateNumber' | 'capacity' | 'deviceId', string>>;
 
+const inputClass = 'w-full rounded-[var(--radius-btn)] border border-rule px-3 py-2.5 text-sm text-ink placeholder:text-sub focus:border-amber focus:outline-none focus:ring-1 focus:ring-amber';
+const labelClass = 'block text-sm font-medium text-ink mb-1.5';
+
 export default function NewBusPage() {
   const router = useRouter();
   const [plateNumber, setPlateNumber] = useState('');
@@ -32,19 +35,12 @@ export default function NewBusPage() {
     setFormError(null);
     setErrors({});
 
-    const parseResult = busFormSchema.safeParse({
-      plateNumber,
-      capacity,
-      deviceId,
-    });
-
+    const parseResult = busFormSchema.safeParse({ plateNumber, capacity, deviceId });
     if (!parseResult.success) {
       const fieldErrors: FormErrors = {};
       for (const issue of parseResult.error.issues) {
         const field = issue.path[0] as keyof FormErrors;
-        if (field && !fieldErrors[field]) {
-          fieldErrors[field] = issue.message;
-        }
+        if (field && !fieldErrors[field]) fieldErrors[field] = issue.message;
       }
       setErrors(fieldErrors);
       return;
@@ -60,16 +56,8 @@ export default function NewBusPage() {
         `${process.env.NEXT_PUBLIC_SUPABASE_URL}/functions/v1/manage-bus`,
         {
           method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            Authorization: `Bearer ${accessToken}`,
-            apikey: process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-          },
-          body: JSON.stringify({
-            plateNumber: parseResult.data.plateNumber,
-            capacity: parseResult.data.capacity,
-            deviceId: parseResult.data.deviceId || undefined,
-          }),
+          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${accessToken}`, apikey: process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY! },
+          body: JSON.stringify({ plateNumber: parseResult.data.plateNumber, capacity: parseResult.data.capacity, deviceId: parseResult.data.deviceId || undefined }),
         },
       );
 
@@ -79,9 +67,7 @@ export default function NewBusPage() {
           const fieldErrors: FormErrors = {};
           for (const issue of errorBody.details) {
             const field = issue.path?.[0] as keyof FormErrors;
-            if (field && !fieldErrors[field]) {
-              fieldErrors[field] = issue.message;
-            }
+            if (field && !fieldErrors[field]) fieldErrors[field] = issue.message;
           }
           setErrors(fieldErrors);
         } else {
@@ -97,86 +83,49 @@ export default function NewBusPage() {
   }
 
   return (
-    <div className="mx-auto mt-4 max-w-lg rounded-xl border border-navy/10 bg-white p-6 shadow-sm">
-      <h2 className="text-lg font-bold text-navy">Add New Bus</h2>
+    <div className="max-w-[1200px] mx-auto">
+      <div className="mb-6">
+        <h1 className="font-heading font-bold text-[28px] tracking-tight text-ink">Add New Bus</h1>
+        <p className="text-sm text-sub mt-1">Register a new bus in your fleet</p>
+      </div>
 
-      <form onSubmit={handleSubmit} className="mt-5 flex flex-col gap-4">
-        {formError && (
-          <div className="rounded-lg bg-red-50 border border-red-200 text-red-700 text-sm px-4 py-3">
-            {formError}
+      <div className="mx-auto max-w-lg bg-surface shadow-[var(--shadow-card)] rounded-[var(--radius-card)] p-6">
+        <form onSubmit={handleSubmit} className="flex flex-col gap-4">
+          {formError && (
+            <div className="rounded-[var(--radius-btn)] bg-red-bg border border-red/30 text-red text-sm px-4 py-3">
+              {formError}
+            </div>
+          )}
+
+          <div>
+            <label className={labelClass}>Plate Number</label>
+            <input type="text" value={plateNumber} onChange={(e) => setPlateNumber(e.target.value)} placeholder="e.g., LAG-234-XY" className={inputClass} />
+            {errors.plateNumber && <p className="text-xs text-red mt-1">{errors.plateNumber}</p>}
           </div>
-        )}
 
-        <div>
-          <label className="block text-sm font-medium text-navy mb-1.5">
-            Plate Number
-          </label>
-          <input
-            type="text"
-            value={plateNumber}
-            onChange={(e) => setPlateNumber(e.target.value)}
-            placeholder="e.g., LAG-234-XY"
-            className="w-full rounded-lg border border-navy/20 px-3 py-2.5 text-sm text-navy placeholder:text-navy/40 focus:border-amber focus:outline-none focus:ring-1 focus:ring-amber"
-          />
-          {errors.plateNumber && (
-            <p className="text-xs text-red-500 mt-1">{errors.plateNumber}</p>
-          )}
-        </div>
+          <div>
+            <label className={labelClass}>Capacity</label>
+            <input type="number" value={capacity} onChange={(e) => setCapacity(e.target.value)} placeholder="e.g., 30" min={1} max={100} className={inputClass} />
+            {errors.capacity && <p className="text-xs text-red mt-1">{errors.capacity}</p>}
+          </div>
 
-        <div>
-          <label className="block text-sm font-medium text-navy mb-1.5">
-            Capacity
-          </label>
-          <input
-            type="number"
-            value={capacity}
-            onChange={(e) => setCapacity(e.target.value)}
-            placeholder="e.g., 30"
-            min={1}
-            max={100}
-            className="w-full rounded-lg border border-navy/20 px-3 py-2.5 text-sm text-navy placeholder:text-navy/40 focus:border-amber focus:outline-none focus:ring-1 focus:ring-amber"
-          />
-          {errors.capacity && (
-            <p className="text-xs text-red-500 mt-1">{errors.capacity}</p>
-          )}
-        </div>
+          <div>
+            <label className={labelClass}>Device ID</label>
+            <input type="text" value={deviceId} onChange={(e) => setDeviceId(e.target.value)} placeholder="e.g., a1b2c3d4e5f6" className={inputClass} />
+            <p className="text-xs text-sub mt-1">The Android ID of the BusBuzz tracking phone. You can add this later.</p>
+            {errors.deviceId && <p className="text-xs text-red mt-1">{errors.deviceId}</p>}
+          </div>
 
-        <div>
-          <label className="block text-sm font-medium text-navy mb-1.5">
-            Device ID
-          </label>
-          <input
-            type="text"
-            value={deviceId}
-            onChange={(e) => setDeviceId(e.target.value)}
-            placeholder="e.g., a1b2c3d4e5f6"
-            className="w-full rounded-lg border border-navy/20 px-3 py-2.5 text-sm text-navy placeholder:text-navy/40 focus:border-amber focus:outline-none focus:ring-1 focus:ring-amber"
-          />
-          <p className="text-xs text-navy/50 mt-1">
-            The Android ID of the BusBuzz tracking phone mounted in this bus. You
-            can add this later.
-          </p>
-          {errors.deviceId && (
-            <p className="text-xs text-red-500 mt-1">{errors.deviceId}</p>
-          )}
-        </div>
-
-        <div className="flex justify-end gap-3 mt-2">
-          <Link
-            href="/dashboard/buses"
-            className="rounded-lg border border-navy/20 px-4 py-2.5 text-sm font-medium text-navy/70"
-          >
-            Cancel
-          </Link>
-          <button
-            type="submit"
-            disabled={isSubmitting}
-            className="rounded-lg bg-amber px-4 py-2.5 text-sm font-semibold text-navy disabled:cursor-not-allowed disabled:opacity-60"
-          >
-            {isSubmitting ? 'Adding...' : 'Add Bus'}
-          </button>
-        </div>
-      </form>
+          <div className="flex justify-end gap-3 mt-2">
+            <Link href="/dashboard/buses" className="rounded-[var(--radius-btn)] border border-rule px-4 py-2.5 text-sm font-medium text-sub hover:bg-canvas transition-colors duration-150 active:scale-95">
+              Cancel
+            </Link>
+            <button type="submit" disabled={isSubmitting} className="rounded-[var(--radius-btn)] bg-amber px-4 py-2.5 text-sm font-semibold text-navy hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-60 active:scale-95 transition-all duration-150">
+              {isSubmitting ? 'Adding...' : 'Add Bus'}
+            </button>
+          </div>
+        </form>
+      </div>
     </div>
   );
 }

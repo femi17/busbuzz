@@ -2,6 +2,7 @@
 
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
+import { Trash2 } from 'lucide-react';
 import { createClient } from '@/lib/supabase';
 
 export function DeleteRouteButton({
@@ -63,9 +64,10 @@ export function DeleteRouteButton({
           ? 'Unassign all students before deleting'
           : undefined
       }
-      className="text-sm font-medium text-red-500 hover:text-red-700 disabled:cursor-not-allowed disabled:opacity-60"
+      className="inline-flex items-center gap-1.5 text-[12px] font-medium text-sub hover:text-red transition-colors duration-100 disabled:cursor-not-allowed disabled:opacity-60"
     >
-      {isDeleting ? 'Deleting...' : 'Delete'}
+      <Trash2 size={13} strokeWidth={2} />
+      {isDeleting ? 'Deleting…' : 'Delete'}
     </button>
   );
 }

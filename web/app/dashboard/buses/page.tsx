@@ -1,30 +1,8 @@
 import Link from 'next/link';
 import { createClient } from '@/lib/supabase-server';
-import { RetireBusButton } from '@/components/dashboard/RetireBusButton';
-
-type BusRow = {
-  id: string;
-  plate_number: string;
-  capacity: number;
-  device_id: string | null;
-  status: 'ACTIVE' | 'MAINTENANCE' | 'RETIRED';
-};
-
-function StatusBadge({ status }: { status: BusRow['status'] }) {
-  const styles: Record<BusRow['status'], string> = {
-    ACTIVE: 'bg-green-50 text-green-700',
-    MAINTENANCE: 'bg-amber/15 text-amber-dark',
-    RETIRED: 'bg-gray-100 text-gray-500',
-  };
-
-  return (
-    <span
-      className={`inline-flex rounded-full px-2.5 py-1 text-xs font-semibold ${styles[status]}`}
-    >
-      {status.charAt(0) + status.slice(1).toLowerCase()}
-    </span>
-  );
-}
+import { BusFleet } from '@/components/dashboard/BusFleet';
+import type { BusRow } from '@/components/dashboard/BusFleet';
+import { DashboardHeader } from '@/components/dashboard/DashboardHeader';
 
 export default async function BusesPage({
   searchParams,
@@ -41,86 +19,40 @@ export default async function BusesPage({
 
   const busRows = (buses ?? []) as unknown as BusRow[];
 
+  const activeCount = busRows.filter((b) => b.status === 'ACTIVE').length;
+  const maintenanceCount = busRows.filter((b) => b.status === 'MAINTENANCE').length;
+  const retiredCount = busRows.filter((b) => b.status === 'RETIRED').length;
+
+  const fleetSummary = [
+    activeCount > 0 && `${activeCount} active`,
+    maintenanceCount > 0 && `${maintenanceCount} in maintenance`,
+    retiredCount > 0 && `${retiredCount} retired`,
+  ]
+    .filter(Boolean)
+    .join(' · ');
+
   return (
-    <div className="flex flex-col gap-4">
+    <div className="max-w-[1200px] mx-auto">
       {created === '1' && (
-        <div className="rounded-lg bg-green-50 border border-green-200 text-green-700 text-sm px-4 py-3">
+        <div className="mb-4 rounded-[var(--radius-btn)] bg-green-bg border border-green/20 text-green text-sm px-4 py-3">
           Bus added successfully.
         </div>
       )}
 
-      <div className="flex items-center justify-between">
-        <p className="text-sm font-medium text-navy/60">
-          {busRows.length} {busRows.length === 1 ? 'bus' : 'buses'}
-        </p>
-        <Link
-          href="/dashboard/buses/new"
-          className="rounded-lg bg-amber px-4 py-2.5 text-sm font-semibold text-navy"
-        >
-          + Add Bus
-        </Link>
-      </div>
+      <DashboardHeader
+        title="Buses"
+        subtitle={fleetSummary || 'Manage your school bus fleet'}
+        actions={
+          <Link
+            href="/dashboard/buses/new"
+            className="bg-amber text-navy rounded-[var(--radius-btn)] px-4 py-2.5 text-sm font-semibold hover:brightness-110 active:scale-95 transition-all duration-150"
+          >
+            + Add Bus
+          </Link>
+        }
+      />
 
-      <div className="rounded-xl border border-navy/10 bg-white shadow-sm">
-        {busRows.length === 0 ? (
-          <div className="flex flex-col items-center gap-3 px-5 py-16 text-center">
-            <p className="text-sm text-navy/50">
-              No buses added yet. Add your first bus to get started.
-            </p>
-            <Link
-              href="/dashboard/buses/new"
-              className="rounded-lg bg-amber px-4 py-2.5 text-sm font-semibold text-navy"
-            >
-              + Add Bus
-            </Link>
-          </div>
-        ) : (
-          <table className="w-full text-left text-sm">
-            <thead>
-              <tr className="border-b border-navy/10 text-navy/50">
-                <th className="px-5 py-3 font-medium">Plate Number</th>
-                <th className="px-5 py-3 font-medium">Capacity</th>
-                <th className="px-5 py-3 font-medium">Status</th>
-                <th className="px-5 py-3 font-medium">Device ID</th>
-                <th className="px-5 py-3 font-medium">Actions</th>
-              </tr>
-            </thead>
-            <tbody>
-              {busRows.map((bus) => (
-                <tr key={bus.id} className="border-b border-navy/5 last:border-0">
-                  <td className="px-5 py-3 font-medium text-navy">
-                    {bus.plate_number}
-                  </td>
-                  <td className="px-5 py-3 text-navy/80">{bus.capacity}</td>
-                  <td className="px-5 py-3">
-                    <StatusBadge status={bus.status} />
-                  </td>
-                  <td className="px-5 py-3 text-navy/80">
-                    {bus.device_id ? (
-                      bus.device_id
-                    ) : (
-                      <span className="italic text-navy/40">Not configured</span>
-                    )}
-                  </td>
-                  <td className="px-5 py-3">
-                    <div className="flex items-center gap-3">
-                      <Link
-                        href={`/dashboard/buses/${bus.id}/edit`}
-                        className="text-sm font-medium text-navy/60 hover:text-navy"
-                      >
-                        Edit
-                      </Link>
-                      {bus.status !== 'RETIRED' && (
-                        <RetireBusButton busId={bus.id} />
-                      )}
-                    </div>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        )}
-      </div>
+      <BusFleet buses={busRows} />
     </div>
   );
 }

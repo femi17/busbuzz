@@ -1,5 +1,12 @@
 import { createClient } from 'npm:@supabase/supabase-js@2';
-import { markAttendanceSchema } from '../../../shared/schemas.ts';
+import { z } from 'zod';
+
+// Inlined (was ../../../shared/schemas.ts) so the deploy bundler ships one file.
+const markAttendanceSchema = z.object({
+  tripId: z.string().uuid(),
+  studentId: z.string().uuid(),
+  status: z.enum(['BOARDED', 'ABSENT', 'DROPPED_OFF']),
+});
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -176,19 +183,31 @@ Deno.serve(async (req: Request) => {
     );
   }
 
-  // Realtime broadcast (non-fatal on failure)
+  // Realtime broadcast on the private bus channel (non-fatal on failure)
   try {
-    const channel = serviceSupabase.channel(`bus:${trip.bus_id}`);
-    await channel.send({
-      type: 'broadcast',
-      event: validated.status === 'DROPPED_OFF' ? 'student_dropped' : 'student_boarded',
-      payload: {
-        studentId: validated.studentId,
-        status: validated.status,
-        timestamp: markedAt,
+    const serviceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
+    await fetch(`${Deno.env.get('SUPABASE_URL')}/realtime/v1/api/broadcast`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        apikey: serviceKey,
+        Authorization: `Bearer ${serviceKey}`,
       },
+      body: JSON.stringify({
+        messages: [
+          {
+            topic: `bus:${trip.bus_id}`,
+            event: validated.status === 'DROPPED_OFF' ? 'student_dropped' : 'student_boarded',
+            payload: {
+              studentId: validated.studentId,
+              status: validated.status,
+              timestamp: markedAt,
+            },
+            private: true,
+          },
+        ],
+      }),
     });
-    await serviceSupabase.removeChannel(channel);
   } catch (err) {
     console.error('[mark-attendance] Realtime broadcast failed:', err);
   }
@@ -243,6 +262,7 @@ Deno.serve(async (req: Request) => {
                 studentId: validated.studentId,
                 status: validated.status,
               },
+              channelId: 'trip-updates',
             }),
           },
         );

@@ -112,6 +112,18 @@ Deno.serve(async (req: Request) => {
     );
   }
 
+  // Flag the active trip so parents' apps can show a real "breakdown"
+  // status instead of just notifying admins.
+  const { error: sosFlagError } = await serviceSupabase
+    .from('trips')
+    .update({ has_sos: true })
+    .eq('bus_id', validated.busId)
+    .eq('status', 'ACTIVE');
+
+  if (sosFlagError) {
+    console.error('[sos-alert] Failed to flag trip has_sos:', sosFlagError);
+  }
+
   // Query SCHOOL_ADMIN users for this school
   const { data: schoolAdmins, error: schoolAdminsError } =
     await serviceSupabase
@@ -171,6 +183,8 @@ Deno.serve(async (req: Request) => {
         title: 'SOS Alert',
         body: `SOS alert from bus ${bus.plate_number} — Driver: ${profile.name}`,
         data: { type: 'sos', busId: validated.busId },
+        // Emergency — alarm-like delivery.
+        channelId: 'arrival-alarm',
       }),
     });
 

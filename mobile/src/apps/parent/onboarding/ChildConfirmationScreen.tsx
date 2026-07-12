@@ -10,7 +10,9 @@ import {
 } from 'react-native';
 
 import { supabase } from '../../../lib/supabase';
-import { BORDER, DANFO, INK, MUTED, STOP } from './constants';
+import { BackpackIcon } from '../components/Icons';
+import { TicketCard } from '../components/TicketCard';
+import { color, radius, space, type } from '../theme';
 import type { OnboardingStackParamList } from './OnboardingNavigator';
 
 type Props = NativeStackScreenProps<OnboardingStackParamList, 'ChildConfirmation'>;
@@ -59,7 +61,7 @@ export default function ChildConfirmationScreen({ navigation }: Props) {
         .eq('parent_id', user.id);
 
       if (queryError) {
-        setError('Something went wrong loading your child. Please try again.');
+        setError('We couldn’t load your child’s details. Try again.');
         setIsLoading(false);
         return;
       }
@@ -71,7 +73,7 @@ export default function ChildConfirmationScreen({ navigation }: Props) {
       setChildren(records);
       setIsLoading(false);
     } catch {
-      setError('Something went wrong loading your child. Please try again.');
+      setError('We couldn’t load your child’s details. Try again.');
       setIsLoading(false);
     }
   }, []);
@@ -90,7 +92,7 @@ export default function ChildConfirmationScreen({ navigation }: Props) {
       } = await supabase.auth.getSession();
 
       if (!session) {
-        setError('Your session has expired. Please log in again.');
+        setError('Your session has expired. Log in again to continue.');
         setIsSubmitting(false);
         return;
       }
@@ -108,7 +110,7 @@ export default function ChildConfirmationScreen({ navigation }: Props) {
       );
 
       if (!response.ok) {
-        setError('Something went wrong. Please try again.');
+        setError('That didn’t go through. Try again.');
         setIsSubmitting(false);
         return;
       }
@@ -116,7 +118,7 @@ export default function ChildConfirmationScreen({ navigation }: Props) {
       setIsSubmitting(false);
       navigation.navigate('NotificationPermission');
     } catch {
-      setError('Something went wrong. Please try again.');
+      setError('That didn’t go through. Try again.');
       setIsSubmitting(false);
     }
   }
@@ -124,7 +126,7 @@ export default function ChildConfirmationScreen({ navigation }: Props) {
   if (isLoading) {
     return (
       <View style={styles.loadingContainer}>
-        <ActivityIndicator size="large" color={DANFO} />
+        <ActivityIndicator size="large" color={color.danfo500} />
       </View>
     );
   }
@@ -133,9 +135,10 @@ export default function ChildConfirmationScreen({ navigation }: Props) {
     return (
       <View style={styles.container}>
         <View style={styles.emptyContent}>
+          <BackpackIcon size={48} color={color.danfo500} />
           <Text style={styles.emptyText}>
-            Your school hasn't linked a child to your account yet. Please
-            contact your school's office.
+            Your school hasn't linked a child to your account yet. Contact
+            your school's office to get set up.
           </Text>
           <Pressable
             style={({ pressed }) => [
@@ -144,7 +147,7 @@ export default function ChildConfirmationScreen({ navigation }: Props) {
             ]}
             onPress={fetchChildren}
           >
-            <Text style={styles.refreshButtonText}>Refresh</Text>
+            <Text style={styles.refreshButtonText}>Check again</Text>
           </Pressable>
         </View>
       </View>
@@ -157,33 +160,50 @@ export default function ChildConfirmationScreen({ navigation }: Props) {
   return (
     <View style={styles.container}>
       <ScrollView contentContainerStyle={styles.scrollContent}>
+        <Text style={styles.eyebrow}>Almost there</Text>
         <Text style={styles.headline}>{headline}</Text>
+        <Text style={styles.subhead}>
+          Your school's boarding pass for BusBuzz tracking.
+        </Text>
 
         {children.map((child) => (
-          <View key={child.id} style={styles.card}>
-            {child.photo_url ? (
-              <View style={styles.avatarPhoto} />
-            ) : (
-              <View style={styles.avatar}>
-                <Text style={styles.avatarText}>{getInitials(child.name)}</Text>
+          <View key={child.id} style={styles.cardWrap}>
+            <TicketCard notchColor={color.ink900}>
+              <View style={styles.mainRow}>
+                {child.photo_url ? (
+                  <View style={styles.avatarPhoto} />
+                ) : (
+                  <View style={styles.avatar}>
+                    <Text style={styles.avatarText}>{getInitials(child.name)}</Text>
+                  </View>
+                )}
+                <View style={styles.cardInfo}>
+                  <Text style={styles.passLabel}>Student</Text>
+                  <Text style={styles.childName}>{child.name}</Text>
+                  <Text style={styles.childMeta}>{child.class_name}</Text>
+                </View>
               </View>
-            )}
-            <View style={styles.cardInfo}>
-              <Text style={styles.childName}>{child.name}</Text>
-              <Text style={styles.childMeta}>{child.class_name}</Text>
-              <Text style={styles.childMeta}>
-                {child.schools?.name ?? 'Unknown school'}
-              </Text>
-              <Text style={styles.childMeta}>
-                {child.routes?.name ?? 'No route assigned'}
-              </Text>
-            </View>
+              <View style={styles.stubRow}>
+                <View style={styles.stubColumn}>
+                  <Text style={styles.stubLabel}>School</Text>
+                  <Text style={styles.stubValue}>
+                    {child.schools?.name ?? 'Not yet assigned'}
+                  </Text>
+                </View>
+                <View style={styles.stubColumn}>
+                  <Text style={styles.stubLabel}>Route</Text>
+                  <Text style={styles.stubValue}>
+                    {child.routes?.name ?? 'Not yet assigned'}
+                  </Text>
+                </View>
+              </View>
+            </TicketCard>
           </View>
         ))}
 
         {showWrongMessage ? (
           <Text style={styles.wrongMessage}>
-            Please contact your school's office to correct this information.
+            Contact your school's office to correct this information.
           </Text>
         ) : null}
 
@@ -201,9 +221,11 @@ export default function ChildConfirmationScreen({ navigation }: Props) {
           disabled={isSubmitting}
         >
           {isSubmitting ? (
-            <ActivityIndicator color={INK} />
+            <ActivityIndicator color={color.ink900} />
           ) : (
-            <Text style={styles.confirmButtonText}>Yes, this is correct</Text>
+            <Text style={styles.confirmButtonText}>
+              {children.length === 1 ? "Yes, that's my child" : "Yes, that's correct"}
+            </Text>
           )}
         </Pressable>
 
@@ -218,131 +240,164 @@ export default function ChildConfirmationScreen({ navigation }: Props) {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: INK,
+    backgroundColor: color.ink900,
   },
   loadingContainer: {
     flex: 1,
-    backgroundColor: INK,
+    backgroundColor: color.ink900,
     alignItems: 'center',
     justifyContent: 'center',
   },
   scrollContent: {
-    paddingHorizontal: 28,
+    paddingHorizontal: space.xxl,
     paddingTop: 64,
-    paddingBottom: 24,
+    paddingBottom: space.xxl,
+  },
+  eyebrow: {
+    ...type.eyebrow,
+    color: color.danfo500,
+    marginBottom: space.sm,
   },
   headline: {
-    fontSize: 24,
-    fontWeight: '700',
-    color: '#fff',
-    marginBottom: 24,
+    ...type.displayMd,
+    color: color.white,
   },
-  card: {
+  subhead: {
+    ...type.bodyMd,
+    color: color.mist400,
+    marginTop: space.xs,
+    marginBottom: space.xxl,
+  },
+  cardWrap: {
+    marginBottom: space.xl,
+    shadowColor: '#000',
+    shadowOpacity: 0.25,
+    shadowOffset: { width: 0, height: 6 },
+    shadowRadius: 14,
+    elevation: 6,
+  },
+  mainRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#161F33',
-    borderWidth: 1,
-    borderColor: BORDER,
-    borderRadius: 14,
-    padding: 16,
-    marginBottom: 16,
   },
   avatar: {
     width: 56,
     height: 56,
     borderRadius: 28,
-    backgroundColor: DANFO,
+    backgroundColor: color.danfo500,
     alignItems: 'center',
     justifyContent: 'center',
-    marginRight: 16,
+    marginRight: space.lg,
   },
   avatarPhoto: {
     width: 56,
     height: 56,
     borderRadius: 28,
-    backgroundColor: BORDER,
-    marginRight: 16,
+    backgroundColor: color.paper100,
+    marginRight: space.lg,
   },
   avatarText: {
     fontSize: 18,
-    fontWeight: '700',
-    color: INK,
+    fontWeight: '800',
+    color: color.ink900,
   },
   cardInfo: {
     flex: 1,
   },
+  passLabel: {
+    ...type.eyebrow,
+    fontSize: 10,
+    color: color.ledger400,
+    marginBottom: 2,
+  },
   childName: {
-    fontSize: 18,
-    fontWeight: '700',
-    color: '#fff',
-    marginBottom: 4,
+    fontSize: 19,
+    fontWeight: '800',
+    color: color.ledger700,
   },
   childMeta: {
     fontSize: 14,
-    color: MUTED,
-    marginBottom: 2,
+    color: color.ledger400,
+    marginTop: 2,
+  },
+  stubRow: {
+    flexDirection: 'row',
+  },
+  stubColumn: {
+    flex: 1,
+  },
+  stubLabel: {
+    ...type.eyebrow,
+    fontSize: 10,
+    color: color.ledger400,
+    marginBottom: 4,
+  },
+  stubValue: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: color.ledger700,
   },
   wrongMessage: {
-    fontSize: 14,
-    color: MUTED,
+    ...type.bodyMd,
+    color: color.mist400,
     textAlign: 'center',
-    marginTop: 12,
+    marginTop: space.md,
   },
   error: {
-    color: STOP,
+    color: color.stopRed,
     fontWeight: '600',
     textAlign: 'center',
-    marginTop: 12,
+    marginTop: space.md,
   },
   footer: {
-    paddingHorizontal: 28,
-    paddingBottom: 32,
-    paddingTop: 12,
+    paddingHorizontal: space.xxl,
+    paddingBottom: space.xxxl,
+    paddingTop: space.md,
   },
   confirmButton: {
-    backgroundColor: DANFO,
-    borderRadius: 10,
+    backgroundColor: color.danfo500,
+    borderRadius: radius.md,
     paddingVertical: 18,
     alignItems: 'center',
     justifyContent: 'center',
-    marginBottom: 16,
+    marginBottom: space.lg,
   },
   confirmButtonPressed: {
-    backgroundColor: '#E0AD00',
+    backgroundColor: color.danfo600,
   },
   confirmButtonDisabled: {
     opacity: 0.6,
   },
   confirmButtonText: {
-    color: INK,
+    color: color.ink900,
     fontSize: 17,
-    fontWeight: '700',
-    letterSpacing: 1,
+    fontWeight: '800',
+    letterSpacing: 0.3,
   },
   wrongButtonText: {
     fontSize: 14,
-    color: MUTED,
+    color: color.mist400,
     textAlign: 'center',
   },
   emptyContent: {
     flex: 1,
     alignItems: 'center',
     justifyContent: 'center',
-    paddingHorizontal: 28,
+    paddingHorizontal: space.xxl,
   },
   emptyText: {
-    fontSize: 16,
-    color: '#fff',
+    ...type.bodyLg,
+    color: color.white,
     textAlign: 'center',
-    marginBottom: 24,
-    lineHeight: 22,
+    marginTop: space.xl,
+    marginBottom: space.xxl,
   },
   refreshButton: {
-    borderWidth: 1,
-    borderColor: DANFO,
-    borderRadius: 10,
+    borderWidth: 1.5,
+    borderColor: color.danfo500,
+    borderRadius: radius.md,
     paddingVertical: 14,
-    paddingHorizontal: 28,
+    paddingHorizontal: space.xxl,
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -350,7 +405,7 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(255,201,0,0.1)',
   },
   refreshButtonText: {
-    color: DANFO,
+    color: color.danfo500,
     fontSize: 15,
     fontWeight: '700',
   },

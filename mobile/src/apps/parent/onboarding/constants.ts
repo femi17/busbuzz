@@ -1,6 +1,10 @@
-export const INK = '#0E1B2E';
-export const ASPHALT = '#23262B';
-export const DANFO = '#FFC900';
-export const STOP = '#FF6B5E';
-export const MUTED = '#9CA3AF';
-export const BORDER = '#33394A';
+// Re-exported from the shared parent-app theme for the onboarding flow's
+// existing import paths.
+import { color } from '../theme';
+
+export const INK = color.ink900;
+export const ASPHALT = color.stripeBlack;
+export const DANFO = color.danfo500;
+export const STOP = color.stopRed;
+export const MUTED = color.mist400;
+export const BORDER = color.border;

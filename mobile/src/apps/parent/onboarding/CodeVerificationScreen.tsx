@@ -10,7 +10,8 @@ import {
 } from 'react-native';
 
 import { supabase } from '../../../lib/supabase';
-import { BORDER, DANFO, INK, MUTED, STOP } from './constants';
+import { saveLastParentEmail } from '../lastParentEmail';
+import { color, radius, space, type } from '../theme';
 import type { OnboardingStackParamList } from './OnboardingNavigator';
 
 type Props = NativeStackScreenProps<OnboardingStackParamList, 'CodeVerification'>;
@@ -21,6 +22,7 @@ const RESEND_COOLDOWN_SECONDS = 30;
 export default function CodeVerificationScreen({ navigation, route }: Props) {
   const { email } = route.params;
   const [digits, setDigits] = useState<string[]>(Array(CODE_LENGTH).fill(''));
+  const [focusedIndex, setFocusedIndex] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [isVerifying, setIsVerifying] = useState(false);
   const [resendCooldown, setResendCooldown] = useState(RESEND_COOLDOWN_SECONDS);
@@ -67,6 +69,8 @@ export default function CodeVerificationScreen({ navigation, route }: Props) {
         .eq('id', verifyData.user.id)
         .single();
 
+      await saveLastParentEmail(email);
+
       setIsVerifying(false);
 
       if (profile?.onboarding_completed) {
@@ -96,11 +100,31 @@ export default function CodeVerificationScreen({ navigation, route }: Props) {
     }
 
     const next = [...digits];
-    next[index] = filtered[filtered.length - 1];
-    setDigits(next);
+    const previous = digits[index];
 
-    if (index < CODE_LENGTH - 1) {
-      inputRefs.current[index + 1]?.focus();
+    // Plain overtype: this box already held a digit and the user typed one
+    // more on top of it, so the field now reads "old+new" — keep just the
+    // new one. (No maxLength on the box anymore, since that's what was
+    // truncating a real paste down to a single character.)
+    const isOvertype = filtered.length === 2 && !!previous && filtered[0] === previous;
+
+    if (filtered.length > 1 && !isOvertype) {
+      // A paste or SMS autofill delivering the whole code in one change
+      // event — spread it across the remaining boxes starting here.
+      let cursor = index;
+      for (const digit of filtered) {
+        if (cursor >= CODE_LENGTH) break;
+        next[cursor] = digit;
+        cursor += 1;
+      }
+      setDigits(next);
+      inputRefs.current[Math.min(cursor, CODE_LENGTH - 1)]?.focus();
+    } else {
+      next[index] = isOvertype ? filtered[1] : filtered[filtered.length - 1];
+      setDigits(next);
+      if (index < CODE_LENGTH - 1) {
+        inputRefs.current[index + 1]?.focus();
+      }
     }
 
     const joined = next.join('');
@@ -131,7 +155,7 @@ export default function CodeVerificationScreen({ navigation, route }: Props) {
       });
 
       if (!otpError) {
-        setResendFeedback('Code sent!');
+        setResendFeedback('New code sent.');
         setResendCooldown(RESEND_COOLDOWN_SECONDS);
         clearAllAndFocusFirst();
       }
@@ -143,8 +167,9 @@ export default function CodeVerificationScreen({ navigation, route }: Props) {
   return (
     <View style={styles.container}>
       <View style={styles.content}>
-        <Text style={styles.headline}>We sent a code to</Text>
-        <Text style={styles.email}>{email}</Text>
+        <Text style={styles.eyebrow}>Step 2 of 2</Text>
+        <Text style={styles.headline}>Enter the 6-digit code</Text>
+        <Text style={styles.email}>sent to {email}</Text>
 
         <View style={styles.boxRow}>
           {digits.map((digit, index) => (
@@ -153,11 +178,17 @@ export default function CodeVerificationScreen({ navigation, route }: Props) {
               ref={(ref: TextInput | null) => {
                 inputRefs.current[index] = ref;
               }}
-              style={styles.box}
+              style={[
+                styles.box,
+                (focusedIndex === index || (!!digit && focusedIndex === null)) &&
+                  styles.boxFocused,
+              ]}
               keyboardType="number-pad"
-              maxLength={1}
+              textContentType="oneTimeCode"
               value={digit}
               editable={!isVerifying}
+              onFocus={() => setFocusedIndex(index)}
+              onBlur={() => setFocusedIndex(null)}
               onChangeText={(text: string) => handleDigitChange(text, index)}
               onKeyPress={(e: { nativeEvent: { key: string } }) =>
                 handleKeyPress(e, index)
@@ -167,7 +198,7 @@ export default function CodeVerificationScreen({ navigation, route }: Props) {
         </View>
 
         {isVerifying ? (
-          <ActivityIndicator color={DANFO} style={styles.spinner} />
+          <ActivityIndicator color={color.danfo500} style={styles.spinner} />
         ) : null}
 
         {error ? <Text style={styles.error}>{error}</Text> : null}
@@ -175,7 +206,7 @@ export default function CodeVerificationScreen({ navigation, route }: Props) {
         <View style={styles.resendRow}>
           {resendCooldown > 0 ? (
             <Text style={styles.resendDisabled}>
-              Resend code ({resendCooldown}s)
+              Resend code in {resendCooldown}s
             </Text>
           ) : (
             <Pressable onPress={handleResend}>
@@ -195,69 +226,79 @@ export default function CodeVerificationScreen({ navigation, route }: Props) {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: INK,
-    paddingHorizontal: 28,
+    backgroundColor: color.ink900,
+    paddingHorizontal: space.xxl,
   },
   content: {
     flex: 1,
     justifyContent: 'center',
   },
+  eyebrow: {
+    ...type.eyebrow,
+    color: color.danfo500,
+    textAlign: 'center',
+    marginBottom: space.sm,
+  },
   headline: {
-    fontSize: 16,
-    color: '#fff',
+    ...type.displayMd,
+    fontSize: 22,
+    color: color.white,
     textAlign: 'center',
   },
   email: {
-    fontSize: 16,
-    fontWeight: '700',
-    color: '#fff',
+    ...type.bodyMd,
+    color: color.mist400,
     textAlign: 'center',
-    marginBottom: 32,
+    marginTop: space.xs,
+    marginBottom: space.xxxl,
   },
   boxRow: {
     flexDirection: 'row',
     justifyContent: 'center',
-    gap: 10,
+    gap: space.sm + 2,
   },
   box: {
     width: 48,
-    height: 56,
-    backgroundColor: INK,
-    borderWidth: 1,
-    borderColor: BORDER,
-    borderRadius: 10,
+    height: 58,
+    backgroundColor: color.ink700,
+    borderWidth: 1.5,
+    borderColor: color.border,
+    borderRadius: radius.md,
     textAlign: 'center',
     fontSize: 24,
     fontWeight: '700',
-    color: '#fff',
+    color: color.white,
+  },
+  boxFocused: {
+    borderColor: color.danfo500,
   },
   spinner: {
-    marginTop: 24,
+    marginTop: space.xxl,
   },
   error: {
-    color: STOP,
+    color: color.stopRed,
     fontWeight: '600',
     textAlign: 'center',
-    marginTop: 20,
+    marginTop: space.xl,
   },
   resendRow: {
     alignItems: 'center',
-    marginTop: 28,
+    marginTop: space.xxl + space.xs,
   },
   resendActive: {
     fontSize: 14,
-    color: DANFO,
-    fontWeight: '600',
+    color: color.danfo500,
+    fontWeight: '700',
   },
   resendDisabled: {
     fontSize: 14,
-    color: MUTED,
+    color: color.mist400,
     fontWeight: '600',
   },
   resendFeedback: {
     fontSize: 13,
-    color: MUTED,
+    color: color.mist400,
     textAlign: 'center',
-    marginTop: 8,
+    marginTop: space.sm,
   },
 });

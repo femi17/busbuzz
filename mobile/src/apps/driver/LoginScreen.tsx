@@ -14,6 +14,7 @@ import {
 
 import { supabase } from '../../lib/supabase';
 import type { DriverStackParamList } from './DriverApp';
+import { color } from './theme';
 
 const ACCESS_TOKEN_KEY = '@busbuzz_access_token';
 
@@ -149,7 +150,7 @@ export default function LoginScreen({ navigation }: Props) {
         disabled={isLoading}
       >
         {isLoading ? (
-          <ActivityIndicator color="#0E1B2E" />
+          <ActivityIndicator color={color.ink} />
         ) : (
           <Text style={styles.buttonText}>LOG IN</Text>
         )}
@@ -158,15 +159,10 @@ export default function LoginScreen({ navigation }: Props) {
   );
 }
 
-const INK = '#0E1B2E';
-const ASPHALT = '#23262B';
-const DANFO = '#FFC900';
-const STOP = '#FF6B5E';
-
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: ASPHALT,
+    backgroundColor: color.asphalt,
     justifyContent: 'center',
     paddingHorizontal: 28,
   },
@@ -176,7 +172,7 @@ const styles = StyleSheet.create({
     left: 0,
     right: 0,
     height: 10,
-    backgroundColor: DANFO,
+    backgroundColor: color.danfo,
   },
   logo: {
     fontSize: 36,
@@ -186,7 +182,7 @@ const styles = StyleSheet.create({
     letterSpacing: -0.5,
   },
   logoAccent: {
-    color: DANFO,
+    color: color.danfo,
   },
   logoSub: {
     fontSize: 13,
@@ -210,9 +206,9 @@ const styles = StyleSheet.create({
   phoneRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: INK,
+    backgroundColor: color.ink,
     borderWidth: 1,
-    borderColor: '#33394A',
+    borderColor: color.inkLine,
     borderRadius: 10,
     paddingHorizontal: 14,
   },
@@ -229,9 +225,9 @@ const styles = StyleSheet.create({
     paddingVertical: 16,
   },
   input: {
-    backgroundColor: INK,
+    backgroundColor: color.ink,
     borderWidth: 1,
-    borderColor: '#33394A',
+    borderColor: color.inkLine,
     borderRadius: 10,
     paddingHorizontal: 14,
     paddingVertical: 16,
@@ -240,26 +236,26 @@ const styles = StyleSheet.create({
     letterSpacing: 4,
   },
   error: {
-    color: STOP,
+    color: color.stopRed,
     fontWeight: '600',
     marginBottom: 16,
     textAlign: 'center',
   },
   button: {
-    backgroundColor: DANFO,
+    backgroundColor: color.danfo,
     borderRadius: 10,
     paddingVertical: 18,
     alignItems: 'center',
     justifyContent: 'center',
   },
   buttonPressed: {
-    backgroundColor: '#E0AD00',
+    backgroundColor: color.danfoDim,
   },
   buttonDisabled: {
     opacity: 0.6,
   },
   buttonText: {
-    color: INK,
+    color: color.ink,
     fontSize: 17,
     fontWeight: '700',
     letterSpacing: 1,

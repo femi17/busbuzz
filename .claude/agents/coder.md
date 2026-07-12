@@ -113,7 +113,7 @@ supabase functions deploy [function-name] --project-ref [dev-project-ref]
 - Supabase client: import from `mobile/src/lib/supabase.ts` (already initialised)
 - Parent app screens: `mobile/src/apps/parent/`
 - Driver app screens: `mobile/src/apps/driver/`
-- Maps: use `react-native-maps` only — never import Mapbox on mobile
+- Maps: use `@rnmapbox/maps` only on mobile — never import `react-native-maps`. Coordinates are `[longitude, latitude]` (GeoJSON order), not `{latitude, longitude}`. Draggable points need `PointAnnotation`; anything with a live/looping animation (e.g. a pulsing marker) must use `MarkerView` instead — `PointAnnotation` bakes its children to a static bitmap and won't animate
 - Realtime subscriptions: always unsubscribe in the useEffect cleanup function
 
 ### Shared files

@@ -1,90 +1,105 @@
 'use client';
 
-import { useState } from 'react';
+import Link from 'next/link';
+import { Eye, Pencil } from 'lucide-react';
+import { RetireStudentButton } from './RetireStudentButton';
 
 export type StudentRow = {
   id: string;
   name: string;
   className: string;
   routeName: string | null;
-  routeType: string | null;
-  stopName: string | null;
+  tripType: string;
   parentCount: number;
   isActive: boolean;
+  photoUrl: string | null;
 };
 
-function StatusBadge({ isActive }: { isActive: boolean }) {
+function Avatar({ name, photoUrl }: { name: string; photoUrl: string | null }) {
   return (
-    <span
-      className={`inline-flex rounded-full px-2.5 py-1 text-xs font-semibold ${
-        isActive ? 'bg-green-50 text-green-700' : 'bg-gray-100 text-gray-500'
-      }`}
-    >
-      {isActive ? 'Active' : 'Inactive'}
-    </span>
+    <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-navy-light overflow-hidden">
+      {photoUrl ? (
+        <img src={photoUrl} alt={name} className="h-full w-full object-cover" />
+      ) : (
+        <span className="text-[11px] font-semibold text-navy">
+          {name.split(' ').map((n) => n[0]).slice(0, 2).join('').toUpperCase()}
+        </span>
+      )}
+    </div>
   );
 }
 
 export function StudentTable({ students }: { students: StudentRow[] }) {
-  const [search, setSearch] = useState('');
-
-  const filtered = students.filter((student) =>
-    student.name.toLowerCase().includes(search.toLowerCase()),
-  );
+  const filtered = students;
 
   return (
     <div className="flex flex-col gap-3">
-      <input
-        type="text"
-        value={search}
-        onChange={(e) => setSearch(e.target.value)}
-        placeholder="Search by name..."
-        className="w-full max-w-sm rounded-lg border border-navy/20 px-3 py-2.5 text-sm text-navy placeholder:text-navy/40 focus:border-amber focus:outline-none focus:ring-1 focus:ring-amber"
-      />
-
-      <div className="rounded-xl border border-navy/10 bg-white shadow-sm">
+      <div className="bg-surface shadow-[var(--shadow-card)] rounded-[var(--radius-card)] overflow-hidden">
         <table className="w-full text-left text-sm">
           <thead>
-            <tr className="border-b border-navy/10 text-navy/50">
-              <th className="px-5 py-3 font-medium">Name</th>
-              <th className="px-5 py-3 font-medium">Class</th>
-              <th className="px-5 py-3 font-medium">Route</th>
-              <th className="px-5 py-3 font-medium">Stop</th>
-              <th className="px-5 py-3 font-medium">Parents</th>
-              <th className="px-5 py-3 font-medium">Status</th>
-              <th className="px-5 py-3 font-medium">Actions</th>
+            <tr className="bg-canvas border-b border-rule">
+              {['', 'Name', 'Class', 'Route', 'Parents', 'Status', 'Actions'].map((h) => (
+                <th key={h} className="px-5 py-3 text-[11px] font-semibold text-sub uppercase tracking-widest whitespace-nowrap">{h}</th>
+              ))}
             </tr>
           </thead>
           <tbody>
-            {filtered.map((student) => (
-              <tr key={student.id} className="border-b border-navy/5 last:border-0">
-                <td className="px-5 py-3 font-medium text-navy">{student.name}</td>
-                <td className="px-5 py-3 text-navy/80">{student.className}</td>
-                <td className="px-5 py-3 text-navy/80">
-                  {student.routeName ? (
-                    `${student.routeName} (${student.routeType})`
-                  ) : (
-                    <span className="italic text-navy/40">Not assigned</span>
-                  )}
-                </td>
-                <td className="px-5 py-3 text-navy/80">
-                  {student.stopName ? (
-                    student.stopName
-                  ) : (
-                    <span className="italic text-navy/40">Not assigned</span>
-                  )}
-                </td>
-                <td className="px-5 py-3 text-navy/80">{student.parentCount}</td>
-                <td className="px-5 py-3">
-                  <StatusBadge isActive={student.isActive} />
-                </td>
-                <td className="px-5 py-3">
-                  <span className="text-sm font-medium text-navy/30 cursor-not-allowed">
-                    Edit
-                  </span>
+            {filtered.length === 0 ? (
+              <tr>
+                <td colSpan={7} className="px-5 py-10 text-center text-sm text-sub">
+                  No students match your search.
                 </td>
               </tr>
-            ))}
+            ) : (
+              filtered.map((student) => (
+                <tr key={student.id} className="border-b border-rule last:border-0 bg-surface hover:bg-canvas/60 transition-colors duration-100">
+                  <td className="pl-5 pr-2 py-3">
+                    <Avatar name={student.name} photoUrl={student.photoUrl} />
+                  </td>
+                  <td className="px-5 py-3 text-[14px] font-medium text-ink whitespace-nowrap">{student.name}</td>
+                  <td className="px-5 py-3 text-[14px] text-ink">{student.className}</td>
+                  <td className="px-5 py-3 text-[14px] text-ink">
+                    {student.routeName ? (
+                      <>
+                        {student.routeName}{' '}
+                        <span className="text-sub text-[12px]">
+                          ({student.tripType === 'MORNING' ? 'Morning' : student.tripType === 'AFTERNOON' ? 'Afternoon' : 'Both'})
+                        </span>
+                      </>
+                    ) : (
+                      <span className="italic text-sub">Not assigned</span>
+                    )}
+                  </td>
+                  <td className="px-5 py-3 text-[13px] text-sub">{student.parentCount}</td>
+                  <td className="px-5 py-3">
+                    <span className={`inline-flex rounded-[var(--radius-chip)] px-2.5 py-1 text-xs font-semibold ${student.isActive ? 'bg-green-bg text-green' : 'bg-canvas text-sub'}`}>
+                      {student.isActive ? 'Active' : 'Inactive'}
+                    </span>
+                  </td>
+                  <td className="px-5 py-3">
+                    <div className="flex items-center gap-4">
+                      <Link
+                        href={`/dashboard/students/${student.id}`}
+                        className="inline-flex items-center gap-1.5 text-[12px] font-medium text-sub hover:text-ink transition-colors duration-100"
+                      >
+                        <Eye size={13} strokeWidth={2} />
+                        View
+                      </Link>
+                      <Link
+                        href={`/dashboard/students/${student.id}/edit`}
+                        className="inline-flex items-center gap-1.5 text-[12px] font-medium text-sub hover:text-ink transition-colors duration-100"
+                      >
+                        <Pencil size={13} strokeWidth={2} />
+                        Edit
+                      </Link>
+                      {student.isActive && (
+                        <RetireStudentButton studentId={student.id} studentName={student.name} />
+                      )}
+                    </div>
+                  </td>
+                </tr>
+              ))
+            )}
           </tbody>
         </table>
       </div>

@@ -1,48 +1,172 @@
 @import "tailwindcss";
 
 :root {
-  --background: #f6f7f4;
-  --foreground: #0e1b2e;
+  --background: #F2F2F0;
+  --foreground: #0A0A0A;
 
-  /* Ink — structure, authority, the school's voice */
-  --color-navy: #0e1b2e;
-  --color-navy-light: #1a2c47;
+  /* Core palette */
+  --color-navy: #0C1E3D;
+  --color-navy-mid: #1A3360;
+  --color-navy-light: #EEF1F8;
 
-  /* Danfo yellow — the actual color of Lagos transit, not a generic amber */
-  --color-amber: #ffc900;
-  --color-amber-dark: #e0ad00;
+  /* Danfo yellow -- the actual color of Lagos transit */
+  --color-amber: #FFC900;
+  --color-amber-dark: #E0AD00;
+  --color-amber-light: #FFF8D6;
+
+  /* Premium dark surfaces for the marketing site (deep danfo-night) */
+  --color-night: #0A0E19;
+  --color-night-2: #111828;
+  --color-stripe: #14161C;
+
+  /* Neutral surface tokens */
+  --color-canvas: #F2F2F0;
+  --color-surface: #FFFFFF;
+  --color-ink: #0A0A0A;
+  --color-sub: #6B6B6B;
+  --color-rule: #E8E8E6;
 
   /* Status */
-  --color-stop: #e13e2d;
-  --color-route: #1c9d5b;
-  --color-paper: #f6f7f4;
+  --color-green: #16A34A;
+  --color-green-bg: #F0FDF4;
+  --color-red: #DC2626;
+  --color-red-bg: #FEF2F2;
+
+  /* Legacy aliases (kept for pages not yet migrated) */
+  --color-paper: #F2F2F0;
+  --color-stop: #DC2626;
+  --color-route: #16A34A;
 }
 
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
+
   --color-navy: var(--color-navy);
+  --color-navy-mid: var(--color-navy-mid);
   --color-navy-light: var(--color-navy-light);
+
   --color-amber: var(--color-amber);
   --color-amber-dark: var(--color-amber-dark);
+  --color-amber-light: var(--color-amber-light);
+
+  --color-night: var(--color-night);
+  --color-night-2: var(--color-night-2);
+  --color-stripe: var(--color-stripe);
+
+  --color-canvas: var(--color-canvas);
+  --color-surface: var(--color-surface);
+  --color-ink: var(--color-ink);
+  --color-sub: var(--color-sub);
+  --color-rule: var(--color-rule);
+
+  --color-green: var(--color-green);
+  --color-green-bg: var(--color-green-bg);
+  --color-red: var(--color-red);
+  --color-red-bg: var(--color-red-bg);
+
+  /* Legacy aliases */
+  --color-paper: var(--color-paper);
   --color-stop: var(--color-stop);
   --color-route: var(--color-route);
-  --color-paper: var(--color-paper);
-  --font-sans: var(--font-inter);
-  --font-display: var(--font-space-grotesk);
+
+  /* Fonts */
+  --font-sans: var(--font-dm-sans);
+  --font-display: var(--font-dm-serif-display);
+  --font-heading: var(--font-bricolage);
   --font-mono: var(--font-plex-mono);
+
+  /* Border radius */
+  --radius-card: 20px;
+  --radius-btn: 12px;
+  --radius-chip: 999px;
+
+  /* Shadows */
+  --shadow-card: 0 1px 2px 0 rgb(0 0 0 / 0.04), 0 0 0 1px rgb(0 0 0 / 0.06);
+  --shadow-float: 0 8px 24px -4px rgb(0 0 0 / 0.12), 0 0 0 1px rgb(0 0 0 / 0.05);
+  --shadow-glow: 0 0 0 3px rgb(255 201 0 / 0.25);
 }
 
 body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: var(--font-inter), Arial, Helvetica, sans-serif;
+  background: var(--color-canvas);
+  color: var(--color-ink);
+  font-family: var(--font-dm-sans), Arial, Helvetica, sans-serif;
 }
 
-/* Departure-board numerals — the signature treatment for live transit data:
-   trip times, ETAs, plate numbers, stop sequence. Tabular mono, wide tracking. */
+/* Departure-board numerals -- tabular mono for live transit data */
 .board-figure {
   font-family: var(--font-plex-mono), ui-monospace, monospace;
   font-variant-numeric: tabular-nums;
   letter-spacing: 0.02em;
 }
+
+/* Pulsing dot animation for live status indicators */
+@keyframes pulse-dot {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.6; transform: scale(1.3); }
+}
+.animate-pulse-dot {
+  animation: pulse-dot 2s ease-in-out infinite;
+}
+
+/* Bus marker pulse ring on map */
+@keyframes pulse-ring {
+  0% { transform: scale(1); opacity: 0.6; }
+  100% { transform: scale(2.5); opacity: 0; }
+}
+.animate-pulse-ring {
+  animation: pulse-ring 2s ease-out infinite;
+}
+
+/* ── Landing / danfo-livery system ─────────────────────────── */
+
+/* The danfo hazard stripe — yellow-over-black livery, used as a structural
+   rail so the page is unmistakably Lagos transit and no one else's SaaS. */
+.hazard-stripe {
+  background-image: repeating-linear-gradient(
+    -45deg,
+    var(--color-amber) 0 15px,
+    var(--color-stripe) 15px 30px
+  );
+}
+
+/* Fine dotted grid for the dark "board" / map surfaces. */
+.dot-grid {
+  background-image: radial-gradient(rgba(255, 255, 255, 0.055) 1px, transparent 1px);
+  background-size: 22px 22px;
+}
+
+/* Heading display face benefits from tighter tracking + optical sizing. */
+.font-heading,
+.font-\[var\(--font-bricolage\)\] {
+  letter-spacing: -0.02em;
+}
+
+/* Departure-board ticker marquee. */
+@keyframes marquee {
+  from { transform: translateX(0); }
+  to { transform: translateX(-50%); }
+}
+.animate-marquee {
+  animation: marquee 34s linear infinite;
+}
+
+/* Slow ambient drift for hero glow. */
+@keyframes drift {
+  0%, 100% { transform: translate(0, 0); }
+  50% { transform: translate(3%, -3%); }
+}
+.animate-drift {
+  animation: drift 14s ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .animate-pulse-dot,
+  .animate-pulse-ring,
+  .animate-marquee,
+  .animate-drift {
+    animation: none;
+  }
+}
+
+

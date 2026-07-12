@@ -1,5 +1,4 @@
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
-import * as Linking from 'expo-linking';
 import { useState } from 'react';
 import {
   ActivityIndicator,
@@ -14,18 +13,28 @@ import {
 
 import { otpRequestSchema } from '../../../../../shared/schemas';
 import { supabase } from '../../../lib/supabase';
-import { BORDER, DANFO, INK, MUTED, STOP } from './constants';
+import { clearLastParentEmail } from '../lastParentEmail';
+import { color, radius, space, type } from '../theme';
 import type { OnboardingStackParamList } from './OnboardingNavigator';
 
 type Props = NativeStackScreenProps<OnboardingStackParamList, 'EmailEntry'>;
 
 const GENERIC_ERROR =
-  "We couldn't find an account for this email. Please check with your school to confirm they've added you to BusBuzz, or verify you entered the correct email.";
+  "We couldn't find an account for this email. Check with your school that they've added you to BusBuzz, or try the email address they have on file.";
 
-export default function EmailEntryScreen({ navigation }: Props) {
-  const [email, setEmail] = useState('');
+export default function EmailEntryScreen({ navigation, route }: Props) {
+  const prefillEmail = route.params?.prefillEmail;
+  const [email, setEmail] = useState(prefillEmail ?? '');
+  const [isReturningUser, setIsReturningUser] = useState(Boolean(prefillEmail));
+  const [isFocused, setIsFocused] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
+
+  function handleNotYou() {
+    setIsReturningUser(false);
+    setEmail('');
+    clearLastParentEmail();
+  }
 
   async function handleSendCode() {
     setError(null);
@@ -34,7 +43,7 @@ export default function EmailEntryScreen({ navigation }: Props) {
     const parseResult = otpRequestSchema.safeParse({ email: trimmedEmail });
 
     if (!parseResult.success) {
-      setError('Please enter a valid email address');
+      setError('Enter a valid email address to continue.');
       return;
     }
 
@@ -45,7 +54,6 @@ export default function EmailEntryScreen({ navigation }: Props) {
         email: trimmedEmail,
         options: {
           shouldCreateUser: false,
-          emailRedirectTo: Linking.createURL('auth/callback'),
         },
       });
 
@@ -73,21 +81,35 @@ export default function EmailEntryScreen({ navigation }: Props) {
       </Pressable>
 
       <View style={styles.content}>
-        <Text style={styles.headline}>What's your email?</Text>
+        <Text style={styles.eyebrow}>{isReturningUser ? 'Welcome back' : 'Step 1 of 2'}</Text>
+        <Text style={styles.headline}>
+          {isReturningUser ? 'Confirm your email' : "What's your email?"}
+        </Text>
         <Text style={styles.helper}>
-          Enter the email your school used to invite you to BusBuzz.
+          {isReturningUser
+            ? "We'll send a fresh code to sign you back in."
+            : 'Use the email your school gave BusBuzz — that’s how we find your child.'}
         </Text>
 
         <TextInput
-          style={styles.input}
+          style={[styles.input, isFocused && styles.inputFocused]}
           keyboardType="email-address"
           autoCapitalize="none"
           autoComplete="email"
           placeholder="you@example.com"
-          placeholderTextColor="#6B7280"
+          placeholderTextColor={color.mist400}
           value={email}
+          editable={!isReturningUser}
           onChangeText={setEmail}
+          onFocus={() => setIsFocused(true)}
+          onBlur={() => setIsFocused(false)}
         />
+
+        {isReturningUser ? (
+          <Pressable style={styles.notYouRow} onPress={handleNotYou}>
+            <Text style={styles.notYouText}>Not you? Use a different email</Text>
+          </Pressable>
+        ) : null}
 
         {error ? <Text style={styles.error}>{error}</Text> : null}
 
@@ -101,9 +123,9 @@ export default function EmailEntryScreen({ navigation }: Props) {
           disabled={isLoading}
         >
           {isLoading ? (
-            <ActivityIndicator color={INK} />
+            <ActivityIndicator color={color.ink900} />
           ) : (
-            <Text style={styles.buttonText}>Send Code</Text>
+            <Text style={styles.buttonText}>Send code</Text>
           )}
         </Pressable>
       </View>
@@ -114,8 +136,8 @@ export default function EmailEntryScreen({ navigation }: Props) {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: INK,
-    paddingHorizontal: 28,
+    backgroundColor: color.ink900,
+    paddingHorizontal: space.xxl,
   },
   backButton: {
     marginTop: 56,
@@ -125,58 +147,73 @@ const styles = StyleSheet.create({
   },
   backArrow: {
     fontSize: 24,
-    color: '#fff',
+    color: color.white,
   },
   content: {
     flex: 1,
     justifyContent: 'center',
     marginTop: -56,
   },
+  eyebrow: {
+    ...type.eyebrow,
+    color: color.danfo500,
+    marginBottom: space.sm,
+  },
   headline: {
-    fontSize: 24,
-    fontWeight: '700',
-    color: '#fff',
-    marginBottom: 8,
+    ...type.displayMd,
+    color: color.white,
+    marginBottom: space.sm,
   },
   helper: {
-    fontSize: 14,
-    color: MUTED,
-    marginBottom: 28,
-    lineHeight: 20,
+    ...type.bodyMd,
+    color: color.mist400,
+    marginBottom: space.xxl + space.xs,
   },
   input: {
-    backgroundColor: INK,
-    borderWidth: 1,
-    borderColor: BORDER,
-    borderRadius: 10,
-    paddingHorizontal: 16,
-    paddingVertical: 16,
+    backgroundColor: color.ink700,
+    borderWidth: 1.5,
+    borderColor: color.border,
+    borderRadius: radius.md,
+    paddingHorizontal: space.lg,
+    paddingVertical: space.lg,
     fontSize: 18,
-    color: '#fff',
-    marginBottom: 16,
+    color: color.white,
+    marginBottom: space.lg,
+  },
+  inputFocused: {
+    borderColor: color.danfo500,
+  },
+  notYouRow: {
+    marginTop: -space.sm,
+    marginBottom: space.lg,
+  },
+  notYouText: {
+    ...type.bodyMd,
+    color: color.danfo500,
+    fontWeight: '700',
   },
   error: {
-    color: STOP,
+    color: color.stopRed,
     fontWeight: '600',
-    marginBottom: 16,
+    marginBottom: space.lg,
   },
   button: {
-    backgroundColor: DANFO,
-    borderRadius: 10,
+    backgroundColor: color.danfo500,
+    borderRadius: radius.md,
     paddingVertical: 18,
     alignItems: 'center',
     justifyContent: 'center',
   },
   buttonPressed: {
-    backgroundColor: '#E0AD00',
+    backgroundColor: color.danfo600,
   },
   buttonDisabled: {
     opacity: 0.6,
   },
   buttonText: {
-    color: INK,
+    color: color.ink900,
     fontSize: 17,
-    fontWeight: '700',
-    letterSpacing: 1,
+    fontWeight: '800',
+    letterSpacing: 0.3,
   },
 });

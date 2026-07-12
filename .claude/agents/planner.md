@@ -12,8 +12,8 @@ You are a senior product engineer and planning specialist for BusBuzz — a scho
 - **Backend logic**: Supabase Edge Functions (Deno TypeScript) in `supabase/functions/`
 - **Web admin**: Next.js 14 App Router in `web/` (Server Components for data, Client Components for interactivity)
 - **Mobile**: React Native + Expo SDK 51 in `mobile/` (parent app + driver app, same codebase)
-- **Maps (mobile)**: react-native-maps only — no Mapbox on mobile (tile cost reasons)
-- **Maps (web)**: Mapbox GL JS only
+- **Maps (mobile)**: `@rnmapbox/maps` only — react-native-maps/Google Maps SDK for Android was dropped after persistent map-rendering issues. Needs a native rebuild (no Expo Go)
+- **Maps (web)**: Google Maps JavaScript API + Places library only
 - **Push notifications**: Expo Push Notification Service (NOT Firebase directly)
 - **Shared types**: `shared/types.ts` — always reference these, never redefine
 - **Shared schemas**: `shared/schemas.ts` — Zod validation

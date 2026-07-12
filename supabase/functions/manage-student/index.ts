@@ -389,53 +389,45 @@ async function handleBulkImport(
 
   const { students } = parseResult.data;
 
-  const { data: stops, error: stopsError } = await supabase
-    .from('stops')
-    .select('id, name, route_id, routes!inner(school_id)');
+  const { data: routes, error: routesError } = await supabase
+    .from('routes')
+    .select('id, name')
+    .eq('school_id', schoolId);
 
-  if (stopsError) {
+  if (routesError) {
     return jsonResponse(
-      { error: stopsError.message, statusCode: 500 },
+      { error: routesError.message, statusCode: 500 },
       500,
     );
   }
 
-  type StopLookupRow = {
-    id: string;
-    name: string;
-    route_id: string;
-  };
-
-  const stopMap = new Map<string, { stopId: string; routeId: string }>();
-  for (const stop of (stops ?? []) as StopLookupRow[]) {
-    stopMap.set(stop.name.toLowerCase().trim(), {
-      stopId: stop.id,
-      routeId: stop.route_id,
-    });
+  const routeMap = new Map<string, string>();
+  for (const route of (routes ?? []) as { id: string; name: string }[]) {
+    routeMap.set(route.name.toLowerCase().trim(), route.id);
   }
 
   const toInsert: Array<{
     school_id: string;
     name: string;
     class_name: string;
+    pickup_address: string | null;
     route_id: string;
-    stop_id: string;
   }> = [];
   const unmatchedSet = new Set<string>();
   let skipped = 0;
 
   for (const student of students) {
-    const match = stopMap.get(student.stopName.toLowerCase().trim());
-    if (match) {
+    const routeId = routeMap.get(student.routeName.toLowerCase().trim());
+    if (routeId) {
       toInsert.push({
         school_id: schoolId,
         name: student.name,
         class_name: student.className,
-        route_id: match.routeId,
-        stop_id: match.stopId,
+        pickup_address: student.pickupAddress ?? null,
+        route_id: routeId,
       });
     } else {
-      unmatchedSet.add(student.stopName);
+      unmatchedSet.add(student.routeName);
       skipped += 1;
     }
   }
@@ -458,7 +450,7 @@ async function handleBulkImport(
       data: {
         created: toInsert.length,
         skipped,
-        unmatchedStops: [...unmatchedSet],
+        unmatchedRoutes: [...unmatchedSet],
       },
       message: 'Bulk import complete',
     },
