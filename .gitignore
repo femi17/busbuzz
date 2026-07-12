@@ -9,3 +9,4 @@ build/
 .pipeline/
 .vs/
 .vercel/
+.claude/settings.local.json
