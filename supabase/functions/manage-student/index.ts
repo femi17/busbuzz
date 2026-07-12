@@ -45,6 +45,36 @@ function mapStudentRow(row: StudentRow) {
   };
 }
 
+// Lagos-biased geocode, mirroring manage-school's school-address geocoding.
+// Best-effort: a failed/absent lookup never blocks student creation, it just
+// leaves pickup_lat/pickup_lng null until an admin fixes it via Map Students.
+async function geocodeAddress(
+  address: string,
+  apiKey: string,
+): Promise<{ lat: number; lng: number } | null> {
+  try {
+    const url =
+      `https://maps.googleapis.com/maps/api/geocode/json?address=${encodeURIComponent(address)}&region=ng&bounds=6.35,2.7|6.70,4.33&key=${apiKey}`;
+    const res = await fetch(url);
+    if (!res.ok) return null;
+    const json = await res.json() as {
+      status: string;
+      results?: Array<{ geometry: { location: { lat: number; lng: number } } }>;
+    };
+    const result = json.results?.[0];
+    if (json.status === 'OK' && result?.geometry?.location) {
+      return { lat: result.geometry.location.lat, lng: result.geometry.location.lng };
+    }
+    if (json.status !== 'ZERO_RESULTS') {
+      console.warn(`Google geocoding returned status ${json.status} for address: ${address}`);
+    }
+    return null;
+  } catch (err) {
+    console.warn(`Google geocoding failed for address "${address}":`, (err as Error).message);
+    return null;
+  }
+}
+
 function jsonResponse(body: unknown, status: number) {
   return new Response(JSON.stringify(body), {
     status,
@@ -186,6 +216,21 @@ async function handleCreate(
     }
   }
 
+  // Trust Places-selected coordinates from the client when present; otherwise
+  // geocode the address server-side (best-effort — never blocks creation).
+  let pickupLat: number | null = validated.pickupLat ?? null;
+  let pickupLng: number | null = validated.pickupLng ?? null;
+  if (validated.pickupAddress && (pickupLat === null || pickupLng === null)) {
+    const googleMapsApiKey = Deno.env.get('GOOGLE_MAPS_API_KEY');
+    if (googleMapsApiKey) {
+      const coords = await geocodeAddress(validated.pickupAddress, googleMapsApiKey);
+      if (coords) {
+        pickupLat = coords.lat;
+        pickupLng = coords.lng;
+      }
+    }
+  }
+
   const { data: inserted, error: insertError } = await supabase
     .from('students')
     .insert({
@@ -195,6 +240,9 @@ async function handleCreate(
       route_id: validated.routeId ?? null,
       stop_id: validated.stopId ?? null,
       medical_notes: validated.medicalNotes ?? null,
+      pickup_address: validated.pickupAddress ?? null,
+      pickup_lat: pickupLat,
+      pickup_lng: pickupLng,
     })
     .select()
     .single();
@@ -411,6 +459,8 @@ async function handleBulkImport(
     name: string;
     class_name: string;
     pickup_address: string | null;
+    pickup_lat: number | null;
+    pickup_lng: number | null;
     route_id: string;
   }> = [];
   const unmatchedSet = new Set<string>();
@@ -424,11 +474,35 @@ async function handleBulkImport(
         name: student.name,
         class_name: student.className,
         pickup_address: student.pickupAddress ?? null,
+        pickup_lat: null,
+        pickup_lng: null,
         route_id: routeId,
       });
     } else {
       unmatchedSet.add(student.routeName);
       skipped += 1;
+    }
+  }
+
+  // Geocode addresses server-side so imported students get a real map
+  // location immediately, instead of waiting on the admin to open Map
+  // Students later. Best-effort and rate-limited to a small concurrency —
+  // a failed/absent lookup just leaves pickup_lat/pickup_lng null.
+  const googleMapsApiKey = Deno.env.get('GOOGLE_MAPS_API_KEY');
+  if (googleMapsApiKey) {
+    const GEOCODE_BATCH_SIZE = 10;
+    const rowsWithAddress = toInsert.filter((row) => row.pickup_address);
+    for (let i = 0; i < rowsWithAddress.length; i += GEOCODE_BATCH_SIZE) {
+      const batch = rowsWithAddress.slice(i, i + GEOCODE_BATCH_SIZE);
+      await Promise.all(
+        batch.map(async (row) => {
+          const coords = await geocodeAddress(row.pickup_address!, googleMapsApiKey);
+          if (coords) {
+            row.pickup_lat = coords.lat;
+            row.pickup_lng = coords.lng;
+          }
+        }),
+      );
     }
   }
 

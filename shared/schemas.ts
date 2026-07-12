@@ -124,6 +124,12 @@ export const createStudentSchema = z.object({
   medicalNotes: z.string().max(2000).optional(),
   routeId: uuidSchema.optional(),
   stopId: uuidSchema.optional(),
+  pickupAddress: z.string().max(500).optional(),
+  // Trusted coordinates from a Google Places selection on the client — when
+  // present, the server uses these directly instead of re-geocoding the
+  // address itself.
+  pickupLat: latitudeSchema.optional(),
+  pickupLng: longitudeSchema.optional(),
 });
 
 export const updateStudentSchema = z.object({
