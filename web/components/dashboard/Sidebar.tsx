@@ -1,5 +1,6 @@
 'use client';
 
+import { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import {
@@ -14,6 +15,8 @@ import {
   School,
   ChevronRight,
   UserCheck,
+  Menu,
+  X,
   type LucideIcon,
 } from 'lucide-react';
 import * as DropdownMenu from '@radix-ui/react-dropdown-menu';
@@ -37,6 +40,23 @@ export function Sidebar({
 }) {
   const pathname = usePathname();
   const router = useRouter();
+  const [open, setOpen] = useState(false);
+
+  // Close the mobile drawer whenever the route changes (covers taps on nav
+  // items, the Settings link, and sign-out all in one place).
+  useEffect(() => {
+    setOpen(false);
+  }, [pathname]);
+
+  // Dismiss the open drawer on Escape.
+  useEffect(() => {
+    if (!open) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setOpen(false);
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [open]);
 
   const navItems: NavItem[] = [
     { label: 'Dashboard', href: '/dashboard', icon: LayoutDashboard },
@@ -66,8 +86,10 @@ export function Sidebar({
     .slice(0, 2)
     .join('');
 
-  return (
-    <aside className="hidden lg:flex fixed left-0 top-0 h-screen w-[220px] flex-col bg-night border-r border-white/[0.06] z-40">
+  // The rail's inner content, shared verbatim between the fixed desktop rail
+  // and the mobile slide-in drawer so both stay in lockstep.
+  const railBody = (
+    <>
       {/* danfo livery rail */}
       <div className="h-1 hazard-stripe shrink-0" />
 
@@ -170,7 +192,7 @@ export function Sidebar({
             side="top"
             align="start"
             sideOffset={4}
-            className="z-50 min-w-[180px] bg-night-2 rounded-[var(--radius-btn)] shadow-[0_16px_40px_-12px_rgba(0,0,0,0.7)] border border-white/10 py-1 outline-none"
+            className="z-[60] min-w-[180px] bg-night-2 rounded-[var(--radius-btn)] shadow-[0_16px_40px_-12px_rgba(0,0,0,0.7)] border border-white/10 py-1 outline-none"
           >
             <DropdownMenu.Item asChild>
               <Link
@@ -193,6 +215,67 @@ export function Sidebar({
           </DropdownMenu.Content>
         </DropdownMenu.Portal>
       </DropdownMenu.Root>
-    </aside>
+    </>
+  );
+
+  return (
+    <>
+      {/* Desktop rail — fixed, always visible from lg up */}
+      <aside className="hidden lg:flex fixed left-0 top-0 h-screen w-[220px] flex-col bg-night border-r border-white/[0.06] z-40">
+        {railBody}
+      </aside>
+
+      {/* Mobile top bar — holds the brand and the hamburger */}
+      <header className="lg:hidden fixed top-0 left-0 right-0 h-14 z-30 flex items-center justify-between bg-night border-b border-white/[0.07] pl-4 pr-2">
+        <div className="flex items-center gap-2.5">
+          <span className="flex items-center justify-center w-7 h-7 rounded-full bg-amber text-night shrink-0 shadow-[0_0_0_1px_rgba(255,201,0,0.35)]">
+            <Bus size={15} strokeWidth={2.4} />
+          </span>
+          <span className="font-mono font-semibold tracking-tight text-[17px] text-white">
+            Bus<span className="text-amber">Buzz</span>
+          </span>
+        </div>
+        <button
+          type="button"
+          onClick={() => setOpen(true)}
+          aria-label="Open navigation menu"
+          aria-expanded={open}
+          aria-controls="mobile-nav"
+          className="flex items-center justify-center w-11 h-11 rounded-[var(--radius-btn)] text-white/70 hover:text-white hover:bg-white/[0.06] transition-colors duration-150 focus:outline-none focus-visible:bg-white/[0.08]"
+        >
+          <Menu size={22} strokeWidth={2} />
+        </button>
+      </header>
+
+      {/* Mobile drawer backdrop */}
+      <div
+        className={`lg:hidden fixed inset-0 z-40 bg-black/60 transition-opacity duration-200 motion-reduce:transition-none ${
+          open ? 'opacity-100' : 'opacity-0 pointer-events-none'
+        }`}
+        onClick={() => setOpen(false)}
+        aria-hidden
+      />
+
+      {/* Mobile drawer panel */}
+      <aside
+        id="mobile-nav"
+        role="dialog"
+        aria-modal="true"
+        aria-label="Navigation menu"
+        className={`lg:hidden fixed left-0 top-0 h-screen w-[264px] max-w-[82%] flex flex-col bg-night border-r border-white/[0.06] z-50 transition-transform duration-200 ease-out motion-reduce:transition-none ${
+          open ? 'translate-x-0' : '-translate-x-full'
+        }`}
+      >
+        <button
+          type="button"
+          onClick={() => setOpen(false)}
+          aria-label="Close navigation menu"
+          className="absolute top-3 right-3 z-10 flex items-center justify-center w-9 h-9 rounded-[var(--radius-btn)] text-white/60 hover:text-white hover:bg-white/[0.08] transition-colors duration-150 focus:outline-none focus-visible:bg-white/[0.1]"
+        >
+          <X size={18} strokeWidth={2} />
+        </button>
+        {railBody}
+      </aside>
+    </>
   );
 }

@@ -11,7 +11,6 @@ import { createStudentSchema } from '../../../../../shared/schemas';
 import { PhotoUpload } from '@/components/dashboard/PhotoUpload';
 import { ParentInviteForm } from '@/components/dashboard/ParentInviteForm';
 import { AddressAutocompleteInput } from '@/components/dashboard/AddressAutocompleteInput';
-import { geocodeAddress } from '@/lib/google-maps';
 
 const newStudentFormSchema = createStudentSchema.omit({ schoolId: true, photoUrl: true, stopId: true, medicalNotes: true });
 
@@ -73,7 +72,17 @@ export default function NewStudentPage() {
       const response = await fetch(`${process.env.NEXT_PUBLIC_SUPABASE_URL}/functions/v1/manage-student`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${accessToken}`, apikey: process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY! },
-        body: JSON.stringify({ action: 'create', name: parseResult.data.name, className: parseResult.data.className, routeId: parseResult.data.routeId || undefined }),
+        body: JSON.stringify({
+          action: 'create',
+          name: parseResult.data.name,
+          className: parseResult.data.className,
+          routeId: parseResult.data.routeId || undefined,
+          pickupAddress: pickupAddress.trim() || undefined,
+          // Trusted coords from a Google Places selection — the server
+          // geocodes server-side itself if these are absent.
+          pickupLat: pickupCoords?.lat,
+          pickupLng: pickupCoords?.lng,
+        }),
       });
       if (!response.ok) {
         const errorBody = await response.json().catch(() => null);
@@ -109,18 +118,6 @@ export default function NewStudentPage() {
           return;
         }
         updates.photo_url = await createPhotoSignedUrl(supabase, path);
-      }
-
-      // Persist pickup address + coords. If the admin typed an address without
-      // picking a suggestion, fall back to a best-effort geocode so we still
-      // end up with a real map location, not just free text.
-      if (pickupAddress.trim()) {
-        updates.pickup_address = pickupAddress.trim();
-        const coords = pickupCoords ?? await geocodeAddress(pickupAddress.trim());
-        if (coords) {
-          updates.pickup_lat = coords.lat;
-          updates.pickup_lng = coords.lng;
-        }
       }
 
       if (Object.keys(updates).length > 0) {

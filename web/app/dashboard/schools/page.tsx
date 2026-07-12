@@ -99,7 +99,8 @@ export default async function SchoolsPage({
             </Link>
           </div>
         ) : (
-          <table className="w-full text-left text-sm">
+          <div className="overflow-x-auto">
+          <table className="w-full min-w-[560px] text-left text-sm">
             <thead>
               <tr className="bg-canvas border-b border-rule">
                 <th className="px-5 py-3 text-[11px] font-semibold text-sub uppercase tracking-widest">School Name</th>
@@ -129,7 +130,7 @@ export default async function SchoolsPage({
                       })}
                     </td>
                     <td className="px-5 py-3">
-                      <div className="flex items-center gap-2 opacity-0 group-hover:opacity-100 transition-opacity duration-100">
+                      <div className="flex items-center gap-2 opacity-100 lg:opacity-0 lg:group-hover:opacity-100 transition-opacity duration-100">
                         <button type="button" className="text-sub hover:text-ink transition-colors duration-100" aria-label="More options">
                           <MoreHorizontal size={16} />
                         </button>
@@ -140,6 +141,7 @@ export default async function SchoolsPage({
               })}
             </tbody>
           </table>
+          </div>
         )}
       </div>
     </div>

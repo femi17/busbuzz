@@ -251,7 +251,8 @@ export function UsersContent({ parents, drivers, buses }: UsersContentProps) {
                 <p className="text-sm text-sub">No parents have been invited yet. Go to Students to invite parents for each student.</p>
               </div>
             ) : (
-              <table className="w-full text-left text-sm">
+              <div className="overflow-x-auto">
+              <table className="w-full min-w-[640px] text-left text-sm">
                 <thead>
                   <tr className="bg-canvas border-b border-rule">
                     {['Name', 'Email', 'Phone', 'Children', 'Status', 'Actions'].map((h) => (
@@ -307,6 +308,7 @@ export function UsersContent({ parents, drivers, buses }: UsersContentProps) {
                   })}
                 </tbody>
               </table>
+              </div>
             )}
           </div>
         </div>
@@ -331,7 +333,8 @@ export function UsersContent({ parents, drivers, buses }: UsersContentProps) {
                 </button>
               </div>
             ) : (
-              <table className="w-full text-left text-sm">
+              <div className="overflow-x-auto">
+              <table className="w-full min-w-[560px] text-left text-sm">
                 <thead>
                   <tr className="bg-canvas border-b border-rule">
                     {['Name', 'Phone', 'Assigned Bus', 'PIN Status', 'Actions'].map((h) => (
@@ -379,6 +382,7 @@ export function UsersContent({ parents, drivers, buses }: UsersContentProps) {
                   })}
                 </tbody>
               </table>
+              </div>
             )}
           </div>
         </div>

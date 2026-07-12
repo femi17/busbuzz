@@ -34,7 +34,7 @@ export default async function DashboardLayout({
   return (
     <div className="flex h-screen w-full overflow-hidden bg-canvas">
       <Sidebar schoolName={schoolName} adminName={adminName} userRole={userRole} />
-      <main className="ml-0 lg:ml-[220px] flex-1 overflow-y-auto min-h-screen bg-canvas p-6">
+      <main className="ml-0 lg:ml-[220px] flex-1 overflow-y-auto min-h-screen bg-canvas p-4 pt-[70px] lg:p-6 lg:pt-6">
         {children}
       </main>
     </div>

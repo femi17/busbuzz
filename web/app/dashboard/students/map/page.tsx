@@ -585,29 +585,29 @@ export default function StudentMapPage() {
   const needsAttentionCount = students.filter(s => s.needsAttention).length;
 
   return (
-    <div className="fixed inset-0 lg:left-[220px] flex flex-col bg-canvas">
+    <div className="fixed inset-0 top-14 lg:top-0 lg:left-[220px] flex flex-col bg-canvas">
 
       {/* ── Header bar ── */}
       <div className="shrink-0 bg-surface border-b border-rule z-10" style={{ boxShadow: '0 1px 4px rgba(0,0,0,0.06)' }}>
 
         {/* Top row */}
-        <div className="flex items-center gap-3 px-4 py-3">
+        <div className="flex flex-wrap items-center gap-2 sm:gap-3 px-3 sm:px-4 py-3">
           <Link
             href="/dashboard/students"
             className="flex items-center gap-1 text-[12px] text-sub hover:text-ink transition-colors shrink-0"
           >
             <ArrowLeft size={13} /> Students
           </Link>
-          <div className="w-px h-4 bg-rule shrink-0" />
-          <h1 className="font-heading font-bold text-[16px] tracking-tight text-ink shrink-0">Student Map</h1>
+          <div className="hidden sm:block w-px h-4 bg-rule shrink-0" />
+          <h1 className="hidden sm:block font-heading font-bold text-[16px] tracking-tight text-ink shrink-0">Student Map</h1>
 
-          <div className="w-px h-4 bg-rule shrink-0" />
+          <div className="hidden sm:block w-px h-4 bg-rule shrink-0" />
 
           {/* Route picker */}
           <select
             value={selectedRouteId}
             onChange={e => setSelectedRouteId(e.target.value)}
-            className="rounded-[var(--radius-btn)] border border-rule px-3 py-1.5 text-[13px] font-medium text-ink bg-canvas focus:border-amber focus:outline-none focus:ring-1 focus:ring-amber min-w-[180px]"
+            className="rounded-[var(--radius-btn)] border border-rule px-3 py-1.5 text-[13px] font-medium text-ink bg-canvas focus:border-amber focus:outline-none focus:ring-1 focus:ring-amber min-w-[140px] sm:min-w-[180px] flex-1 sm:flex-initial"
           >
             <option value="">Select a route…</option>
             {routes.map(r => (
@@ -617,7 +617,7 @@ export default function StudentMapPage() {
 
           {/* Tabs */}
           {routeSelected && (
-            <div className="flex items-center gap-0 ml-2 shrink-0">
+            <div className="flex items-center gap-0 sm:ml-2 shrink-0">
               {(['manual', 'csv'] as const).map(t => (
                 <button
                   key={t}
@@ -633,7 +633,7 @@ export default function StudentMapPage() {
             </div>
           )}
 
-          <div className="flex-1" />
+          <div className="hidden sm:block flex-1" />
 
           {/* Loading indicator */}
           {isLoadingRoute && (
@@ -642,7 +642,7 @@ export default function StudentMapPage() {
 
           {/* Count + no-parent notice */}
           {!isLoadingRoute && routeSelected && (
-            <div className="flex items-center gap-3 shrink-0">
+            <div className="flex flex-wrap items-center gap-x-3 gap-y-1 shrink-0">
               {noParentCount > 0 && (
                 <span className="flex items-center gap-1 text-[12px] text-sub">
                   <UserX size={13} strokeWidth={2} className="text-sub" />
@@ -665,7 +665,7 @@ export default function StudentMapPage() {
               type="button"
               onClick={handleSave}
               disabled={isSaving}
-              className="flex items-center gap-1.5 rounded-[var(--radius-btn)] bg-amber px-4 py-2 text-[12px] font-semibold text-navy hover:brightness-110 disabled:opacity-60 active:scale-95 transition-all duration-150 shrink-0"
+              className="flex items-center gap-1.5 rounded-[var(--radius-btn)] bg-amber px-4 py-2 text-[12px] font-semibold text-navy hover:brightness-110 disabled:opacity-60 active:scale-95 transition-all duration-150 shrink-0 w-full sm:w-auto justify-center"
             >
               <Save size={13} />
               {isSaving ? 'Saving…' : `Save ${unsavedCount}`}
@@ -676,9 +676,9 @@ export default function StudentMapPage() {
         {/* Input strip */}
         {routeSelected && (
           tab === 'manual' ? (
-            <div className="flex items-start gap-2 px-4 pb-3">
+            <div className="flex flex-col sm:flex-row items-stretch sm:items-start gap-2 px-3 sm:px-4 pb-3">
               {/* Name input with existing-student suggestions */}
-              <div className="relative w-[180px] shrink-0">
+              <div className="relative w-full sm:w-[180px] shrink-0">
                 <input
                   type="text"
                   value={draftName}
@@ -713,7 +713,7 @@ export default function StudentMapPage() {
                 value={draftClass}
                 onChange={e => setDraftClass(e.target.value)}
                 placeholder="Class"
-                className="w-[100px] shrink-0 rounded-[var(--radius-btn)] border border-rule px-3 py-2 text-sm text-ink placeholder:text-sub focus:border-amber focus:outline-none focus:ring-1 focus:ring-amber"
+                className="w-full sm:w-[100px] shrink-0 rounded-[var(--radius-btn)] border border-rule px-3 py-2 text-sm text-ink placeholder:text-sub focus:border-amber focus:outline-none focus:ring-1 focus:ring-amber"
               />
 
               {/* Address input with Google Places suggestions */}
@@ -749,14 +749,14 @@ export default function StudentMapPage() {
                 type="button"
                 onClick={handleAddStudent}
                 disabled={isGeocoding || !mapsLoaded || !draftName.trim() || (!draftAddress.trim() && !placeSelectedCoords.current)}
-                className="shrink-0 rounded-[var(--radius-btn)] bg-amber px-4 py-2 text-sm font-semibold text-navy hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-60 active:scale-95 transition-all duration-150"
+                className="shrink-0 w-full sm:w-auto rounded-[var(--radius-btn)] bg-amber px-4 py-2 text-sm font-semibold text-navy hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-60 active:scale-95 transition-all duration-150"
               >
                 {isGeocoding ? 'Locating…' : '+ Add to Map'}
               </button>
               {addError && <p className="self-center text-[11px] text-red shrink-0">{addError}</p>}
             </div>
           ) : (
-            <div className="flex items-center gap-4 px-4 pb-3">
+            <div className="flex flex-wrap items-center gap-3 sm:gap-4 px-3 sm:px-4 pb-3">
               <p className="text-[11px] text-sub">
                 CSV columns: <code className="bg-navy-light px-1 rounded text-navy font-mono">name, class, address, route</code>
                 {' '}— route name must match an existing route (falls back to selected)
@@ -799,15 +799,15 @@ export default function StudentMapPage() {
 
         {/* Route context chip */}
         {selectedRouteName && (
-          <div className="absolute top-3 right-3 bg-surface/95 backdrop-blur-sm rounded-[var(--radius-chip)] shadow-[var(--shadow-float)] px-3 py-1.5 flex items-center gap-2 text-[12px] font-medium text-ink z-10">
+          <div className="absolute top-3 right-3 max-w-[45vw] sm:max-w-none bg-surface/95 backdrop-blur-sm rounded-[var(--radius-chip)] shadow-[var(--shadow-float)] px-3 py-1.5 flex items-center gap-2 text-[12px] font-medium text-ink z-10">
             <span className="w-2.5 h-2.5 rounded-full bg-amber shrink-0" />
-            {selectedRouteName}
+            <span className="truncate">{selectedRouteName}</span>
           </div>
         )}
 
         {/* Floating student list */}
         {students.length > 0 && (
-          <div className="absolute left-3 top-3 w-[230px] bg-surface/95 backdrop-blur-sm rounded-[var(--radius-card)] shadow-[var(--shadow-float)] overflow-hidden z-10">
+          <div className="absolute left-3 top-3 w-[min(230px,50vw)] bg-surface/95 backdrop-blur-sm rounded-[var(--radius-card)] shadow-[var(--shadow-float)] overflow-hidden z-10">
             <button
               type="button"
               onClick={() => setListOpen(p => !p)}
@@ -912,7 +912,7 @@ export default function StudentMapPage() {
 
         {/* Empty hint */}
         {mapsLoaded && schoolCenterReady && students.length === 0 && !isLoadingRoute && (
-          <div className="absolute bottom-6 left-1/2 -translate-x-1/2 bg-surface/90 backdrop-blur-sm rounded-[var(--radius-card)] shadow-[var(--shadow-float)] px-4 py-2.5 text-[12px] text-sub whitespace-nowrap z-10">
+          <div className="absolute bottom-6 left-1/2 -translate-x-1/2 w-[90vw] max-w-sm sm:w-auto sm:max-w-none bg-surface/90 backdrop-blur-sm rounded-[var(--radius-card)] shadow-[var(--shadow-float)] px-4 py-2.5 text-[12px] text-sub text-center sm:whitespace-nowrap z-10">
             {routeSelected
               ? noParentCount > 0
                 ? `${noParentCount} student${noParentCount !== 1 ? 's' : ''} on this route have no parent linked`

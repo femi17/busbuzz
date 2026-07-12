@@ -24,23 +24,31 @@ export function DashboardHeader({
   noMargin?: boolean;
 }) {
   return (
-    <div className={`flex items-start justify-between gap-4 ${noMargin ? '' : 'mb-6'}`}>
-      <div className="min-w-0">
-        {eyebrow && (
-          <p className="font-mono text-[10px] font-semibold text-sub uppercase tracking-[0.16em]">
-            {eyebrow}
-          </p>
-        )}
-        <h1
-          className={`font-heading font-bold text-[28px] tracking-tight text-ink ${eyebrow ? 'mt-1' : ''}`}
-        >
-          {title}
-        </h1>
-        {subtitle && <p className="text-sm text-sub mt-1">{subtitle}</p>}
+    <div className={`flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4 ${noMargin ? '' : 'mb-6'}`}>
+      <div className="min-w-0 flex items-start justify-between gap-3">
+        <div className="min-w-0">
+          {eyebrow && (
+            <p className="font-mono text-[10px] font-semibold text-sub uppercase tracking-[0.16em]">
+              {eyebrow}
+            </p>
+          )}
+          <h1
+            className={`font-heading font-bold text-[22px] sm:text-[28px] tracking-tight text-ink ${eyebrow ? 'mt-1' : ''}`}
+          >
+            {title}
+          </h1>
+          {subtitle && <p className="text-sm text-sub mt-1">{subtitle}</p>}
+        </div>
+        {/* Bell stays pinned beside the title on mobile so it doesn't get lost below wrapped actions */}
+        <div className="sm:hidden shrink-0">
+          <NotificationBell />
+        </div>
       </div>
-      <div className="flex items-center gap-3 shrink-0">
+      <div className="flex flex-wrap items-center gap-2 sm:gap-3 sm:shrink-0">
         {actions}
-        <NotificationBell />
+        <div className="hidden sm:block">
+          <NotificationBell />
+        </div>
       </div>
     </div>
   );

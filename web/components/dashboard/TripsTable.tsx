@@ -45,7 +45,8 @@ export function TripsTable({ trips }: { trips: TripRow[] }) {
   }
 
   return (
-    <table className="w-full text-left text-sm">
+    <div className="overflow-x-auto">
+    <table className="w-full min-w-[520px] text-left text-sm">
       <thead>
         <tr className="bg-canvas border-b border-rule">
           <th className="px-5 py-3 text-[11px] font-semibold text-sub uppercase tracking-widest">Bus</th>
@@ -82,5 +83,6 @@ export function TripsTable({ trips }: { trips: TripRow[] }) {
         ))}
       </tbody>
     </table>
+    </div>
   );
 }

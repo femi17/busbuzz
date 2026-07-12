@@ -460,14 +460,14 @@ export default function LiveMapPage() {
   }, []);
 
   return (
-    <div className="-m-6 flex h-[calc(100vh-4rem)] flex-col">
+    <div className="-mx-4 -mb-4 -mt-[70px] lg:-m-6 flex h-[calc(100vh-70px)] lg:h-[calc(100vh-4rem)] flex-col">
       {/* Page header */}
-      <div className="shrink-0 border-b border-navy/10 bg-white px-6 py-5">
+      <div className="shrink-0 border-b border-navy/10 bg-white px-4 py-4 lg:px-6 lg:py-5">
         <DashboardHeader title="Live Map" subtitle="Track every active bus in real time" noMargin />
       </div>
 
-      <div className="flex flex-1 overflow-hidden">
-        <div className="relative flex-1">
+      <div className="flex flex-1 flex-col lg:flex-row overflow-hidden">
+        <div className="relative flex-1 min-h-[45%] lg:min-h-0">
           {loadError && (
             <div className="absolute left-0 right-0 top-0 z-10 bg-red-50 px-4 py-3 text-center text-sm font-medium text-red-600">
               Failed to load active trips. Please refresh.
@@ -484,7 +484,7 @@ export default function LiveMapPage() {
           )}
         </div>
 
-        <div className="w-80 shrink-0 overflow-y-auto border-l border-navy/10 bg-white">
+        <div className="w-full lg:w-80 shrink-0 overflow-y-auto border-t lg:border-t-0 lg:border-l border-navy/10 bg-white max-h-[45%] lg:max-h-none">
           <div className="border-b border-navy/10 px-5 py-4">
             <h2 className="text-base font-bold text-navy">
               Active Trips ({trips.length})

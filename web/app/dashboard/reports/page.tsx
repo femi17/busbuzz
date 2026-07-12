@@ -570,8 +570,8 @@ export default function ReportsPage() {
 
               {/* Leaderboard */}
               {award.leaderboard.length > 0 && (
-                <div className="overflow-hidden rounded-[16px] border border-rule">
-                  <table className="w-full text-left text-sm">
+                <div className="overflow-x-auto rounded-[16px] border border-rule">
+                  <table className="w-full min-w-[480px] text-left text-sm">
                     <thead>
                       <tr className="bg-canvas border-b border-rule">
                         {['#', 'Student', 'Class', 'Avg Board', 'Pickups'].map((h) => (

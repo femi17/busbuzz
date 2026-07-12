@@ -307,8 +307,8 @@ export function DriversTable({
   }
 
   return (
-    <div className="overflow-hidden rounded-[var(--radius-card)] shadow-[var(--shadow-card)]">
-      <table className="w-full border-collapse bg-surface">
+    <div className="overflow-x-auto rounded-[var(--radius-card)] shadow-[var(--shadow-card)]">
+      <table className="w-full min-w-[640px] border-collapse bg-surface">
         <thead>
           <tr className="border-b border-rule">
             <th className="px-5 py-3.5 text-left text-[11px] font-semibold uppercase tracking-[0.1em] text-sub">Driver</th>
