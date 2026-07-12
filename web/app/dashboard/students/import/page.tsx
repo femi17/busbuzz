@@ -14,6 +14,36 @@ Amina Bello,SS2,5 Broad Street Lagos Island,Afternoon Route B`;
 
 const HEADERS = ['Name', 'Class', 'Address', 'Route'];
 
+// Splits one CSV line into fields per RFC 4180: a quoted field can contain
+// commas (and escaped "" for a literal quote) without ending the field. A
+// naive line.split(',') breaks the moment an address like "54 Foo St, Lagos"
+// appears, since every comma — quoted or not — becomes a field boundary.
+function splitCsvLine(line: string): string[] {
+  const fields: string[] = [];
+  let current = '';
+  let inQuotes = false;
+  for (let i = 0; i < line.length; i++) {
+    const char = line[i];
+    if (inQuotes) {
+      if (char === '"') {
+        if (line[i + 1] === '"') { current += '"'; i++; }
+        else inQuotes = false;
+      } else {
+        current += char;
+      }
+    } else if (char === '"') {
+      inQuotes = true;
+    } else if (char === ',') {
+      fields.push(current.trim());
+      current = '';
+    } else {
+      current += char;
+    }
+  }
+  fields.push(current.trim());
+  return fields;
+}
+
 function parseCsv(text: string): { rows: ParsedRow[]; warning: boolean } {
   const lines = text.split(/\r?\n/);
   const rows: ParsedRow[] = [];
@@ -23,10 +53,13 @@ function parseCsv(text: string): { rows: ParsedRow[]; warning: boolean } {
     if (!line) continue;
     // Skip header row (flexible matching)
     if (/^name[,\t]/i.test(line)) continue;
-    const fields = line.split(',').map((f) => f.trim().replace(/^"|"$/g, ''));
+    const fields = splitCsvLine(line);
     if (fields.length < 3) { warning = true; continue; }
     const [name, className, pickupAddress, ...rest] = fields;
-    const routeName = rest.join(',').trim();
+    // A route name is never expected to itself contain a comma, so unlike the
+    // address field it doesn't need quoting — but if there were extra columns
+    // beyond the 4 expected, still join them rather than silently drop data.
+    const routeName = rest.join(', ').trim();
     if (!name || !className) { warning = true; continue; }
     rows.push({ name, className, pickupAddress: pickupAddress ?? '', routeName: routeName ?? '' });
   }
@@ -158,6 +191,7 @@ export default function BulkImportStudentsPage() {
           </div>
           <p className="text-[11px] text-sub mt-2">
             Route must exactly match a route name in your school. Address is optional — it helps for future stop auto-assignment.
+            If an address contains a comma, wrap it in quotes, e.g. <span className="font-mono">&quot;54 Alabi St, Bucknor, Lagos&quot;</span>.
           </p>
         </div>
 

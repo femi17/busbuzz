@@ -405,7 +405,10 @@
       "Bash(find node_modules -maxdepth 1 -iname \"jimp*\")",
       "Bash(find /c/wamp/www/busbuzz -maxdepth 3 -iname \"jimp-compact\")",
       "Bash(awk '{print $2}')",
-      "Bash(xargs -I{} sh -c 'test -f \"{}\" && grep -lIE \"SUPABASE_SERVICE_ROLE_KEY=ey|sk_live|AIzaSy[A-Za-z0-9_-]{20,}\" \"{}\" 2>/dev/null')"
+      "Bash(xargs -I{} sh -c 'test -f \"{}\" && grep -lIE \"SUPABASE_SERVICE_ROLE_KEY=ey|sk_live|AIzaSy[A-Za-z0-9_-]{20,}\" \"{}\" 2>/dev/null')",
+      "Read(//c/Program Files/Git/**)",
+      "Read(//c/Program Files \\\\\\(x86\\\\\\)/**)",
+      "mcp__c39f482a-670f-4a3d-98f4-fe3b4dec1a7f__get_edge_function"
     ]
   }
 }
