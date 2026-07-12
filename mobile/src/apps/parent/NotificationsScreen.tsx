@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
-import { FlatList, Pressable, RefreshControl, StyleSheet, Text, View } from 'react-native';
+import { Alert, FlatList, Pressable, RefreshControl, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { supabase } from '../../lib/supabase';
@@ -141,6 +141,44 @@ export default function NotificationsScreen() {
     await supabase.from('notifications').update({ read_at: readAt }).eq('id', notification.id);
   }
 
+  async function markAllRead() {
+    const unreadIds = notifications.filter((n) => !n.readAt).map((n) => n.id);
+    if (unreadIds.length === 0) return;
+
+    const readAt = new Date().toISOString();
+    setNotifications((current) => current.map((n) => (n.readAt ? n : { ...n, readAt })));
+
+    await supabase.from('notifications').update({ read_at: readAt }).in('id', unreadIds);
+  }
+
+  async function deleteOne(notification: NotificationRow) {
+    setNotifications((current) => current.filter((n) => n.id !== notification.id));
+    await supabase.from('notifications').delete().eq('id', notification.id);
+  }
+
+  function confirmClearAll() {
+    Alert.alert(
+      'Clear all notifications?',
+      'This removes every notification in the list. This cannot be undone.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Clear all',
+          style: 'destructive',
+          onPress: async () => {
+            const ids = notifications.map((n) => n.id);
+            setNotifications([]);
+            if (ids.length > 0) {
+              await supabase.from('notifications').delete().in('id', ids);
+            }
+          },
+        },
+      ],
+    );
+  }
+
+  const unreadCount = notifications.filter((n) => !n.readAt).length;
+
   if (isLoading) {
     return (
       <SafeAreaView style={styles.loadingContainer} edges={['bottom']}>
@@ -168,38 +206,69 @@ export default function NotificationsScreen() {
           </Text>
         </View>
       ) : (
-        <FlatList<NotificationRow>
-          data={notifications}
-          keyExtractor={(item) => item.id}
-          contentContainerStyle={styles.listContent}
-          refreshControl={
-            <RefreshControl
-              refreshing={isRefreshing}
-              onRefresh={() => load(true)}
-              tintColor={color.danfo500}
-            />
-          }
-          renderItem={({ item }) => (
-            <Pressable
-              style={({ pressed }) => [styles.row, pressed && styles.rowPressed]}
-              onPress={() => markRead(item)}
-            >
-              <NotificationIcon notification={item} />
-              <View style={styles.rowBody}>
-                <View style={styles.rowTop}>
-                  <Text style={[styles.title, !item.readAt && styles.titleUnread]} numberOfLines={1}>
-                    {item.title}
+        <>
+          <View style={styles.actionsBar}>
+            <Text style={styles.actionsCount}>
+              {unreadCount > 0 ? `${unreadCount} unread` : 'All read'}
+            </Text>
+            <View style={styles.actionsButtons}>
+              {unreadCount > 0 ? (
+                <Pressable
+                  onPress={markAllRead}
+                  style={({ pressed }) => [styles.actionBtn, pressed && styles.actionBtnPressed]}
+                >
+                  <Text style={styles.actionBtnText}>Mark all read</Text>
+                </Pressable>
+              ) : null}
+              <Pressable
+                onPress={confirmClearAll}
+                style={({ pressed }) => [styles.actionBtn, pressed && styles.actionBtnPressed]}
+              >
+                <Text style={[styles.actionBtnText, styles.actionBtnDanger]}>Clear all</Text>
+              </Pressable>
+            </View>
+          </View>
+          <FlatList<NotificationRow>
+            data={notifications}
+            keyExtractor={(item) => item.id}
+            contentContainerStyle={styles.listContent}
+            refreshControl={
+              <RefreshControl
+                refreshing={isRefreshing}
+                onRefresh={() => load(true)}
+                tintColor={color.danfo500}
+              />
+            }
+            renderItem={({ item }) => (
+              <Pressable
+                style={({ pressed }) => [styles.row, pressed && styles.rowPressed]}
+                onPress={() => markRead(item)}
+              >
+                <NotificationIcon notification={item} />
+                <View style={styles.rowBody}>
+                  <View style={styles.rowTop}>
+                    <Text style={[styles.title, !item.readAt && styles.titleUnread]} numberOfLines={1}>
+                      {item.title}
+                    </Text>
+                    <Text style={styles.time}>{formatRelativeTime(item.createdAt)}</Text>
+                  </View>
+                  <Text style={styles.body} numberOfLines={2}>
+                    {item.body}
                   </Text>
-                  <Text style={styles.time}>{formatRelativeTime(item.createdAt)}</Text>
                 </View>
-                <Text style={styles.body} numberOfLines={2}>
-                  {item.body}
-                </Text>
-              </View>
-              {!item.readAt ? <View style={styles.unreadDot} /> : null}
-            </Pressable>
-          )}
-        />
+                {!item.readAt ? <View style={styles.unreadDot} /> : null}
+                <Pressable
+                  onPress={() => deleteOne(item)}
+                  hitSlop={10}
+                  accessibilityLabel="Delete notification"
+                  style={({ pressed }) => [styles.deleteBtn, pressed && styles.deleteBtnPressed]}
+                >
+                  <Text style={styles.deleteGlyph}>✕</Text>
+                </Pressable>
+              </Pressable>
+            )}
+          />
+        </>
       )}
     </SafeAreaView>
   );
@@ -244,8 +313,46 @@ const styles = StyleSheet.create({
     fontSize: 14,
     textAlign: 'center',
   },
+  actionsBar: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: space.lg,
+    paddingTop: space.lg,
+    paddingBottom: space.sm,
+  },
+  actionsCount: {
+    ...type.data,
+    fontSize: 12,
+    color: color.ledger400,
+    textTransform: 'uppercase',
+    letterSpacing: 0.8,
+  },
+  actionsButtons: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: space.md,
+  },
+  actionBtn: {
+    paddingVertical: 6,
+    paddingHorizontal: space.md,
+    borderRadius: radius.sm,
+    backgroundColor: color.white,
+  },
+  actionBtnPressed: {
+    opacity: 0.7,
+  },
+  actionBtnText: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: color.ledger700,
+  },
+  actionBtnDanger: {
+    color: color.stopRed,
+  },
   listContent: {
     padding: space.lg,
+    paddingTop: space.sm,
   },
   row: {
     flexDirection: 'row',
@@ -306,5 +413,23 @@ const styles = StyleSheet.create({
     backgroundColor: color.danfo500,
     marginLeft: space.sm,
     marginTop: 6,
+  },
+  deleteBtn: {
+    marginLeft: space.sm,
+    marginTop: 2,
+    width: 22,
+    height: 22,
+    borderRadius: 11,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  deleteBtnPressed: {
+    backgroundColor: color.paper100,
+  },
+  deleteGlyph: {
+    fontSize: 13,
+    lineHeight: 16,
+    color: color.ledger400,
+    fontWeight: '600',
   },
 });

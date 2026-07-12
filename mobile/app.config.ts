@@ -4,9 +4,28 @@
 //   adaptive-icon-parent.png — same bus icon, transparent background, centered for adaptive icon safe zone
 //   adaptive-icon-driver.png — same steering wheel icon, transparent background, centered for adaptive icon safe zone
 
+import { existsSync } from "fs";
 import { ExpoConfig, ConfigContext } from "expo/config";
 
 const IS_DRIVER = process.env.APP_VARIANT === "driver";
+
+// FCM credentials for push notifications. Expo's push service still needs a
+// Firebase project on Android: register BOTH package names (com.busbuzz.parent
+// and com.busbuzz.driver) as Android apps in one Firebase project, download the
+// combined google-services.json, and upload the FCM V1 service account key to
+// EAS (`eas credentials`). Without this file the app builds and runs, but
+// getExpoPushTokenAsync() throws at runtime and every push is silently
+// undelivered.
+//
+// The repo is public, so don't commit the file (it's gitignored). Either drop
+// it at mobile/google-services.json locally, or — for EAS builds — store it as
+// a file-type env var named GOOGLE_SERVICES_JSON (eas env:create --scope
+// project --name GOOGLE_SERVICES_JSON --type file), which EAS exposes as a
+// path in process.env at build time.
+const GOOGLE_SERVICES_FILE =
+  process.env.GOOGLE_SERVICES_JSON ?? "./google-services.json";
+const hasGoogleServices =
+  !!process.env.GOOGLE_SERVICES_JSON || existsSync(GOOGLE_SERVICES_FILE);
 
 const config = {
   name: IS_DRIVER ? "BusBuzz Driver" : "BusBuzz",
@@ -41,6 +60,7 @@ const config = {
   },
   android: {
     package: IS_DRIVER ? "com.busbuzz.driver" : "com.busbuzz.parent",
+    ...(hasGoogleServices ? { googleServicesFile: GOOGLE_SERVICES_FILE } : {}),
     adaptiveIcon: {
       backgroundColor: "#0A1F44",
       foregroundImage: IS_DRIVER

@@ -39,3 +39,6 @@ yarn-error.*
 # generated native folders
 /ios
 /android
+
+# FCM client config — repo is public, keep it out (see app.config.ts)
+google-services.json

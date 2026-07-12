@@ -34,7 +34,7 @@ export async function registerForPushNotifications(accessToken: string): Promise
       return false;
     }
 
-    await fetch(`${supabaseUrl}/functions/v1/update-push-token`, {
+    const response = await fetch(`${supabaseUrl}/functions/v1/update-push-token`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -43,9 +43,22 @@ export async function registerForPushNotifications(accessToken: string): Promise
       body: JSON.stringify({ expoPushToken: tokenResponse.data }),
     });
 
+    if (!response.ok) {
+      console.warn(
+        '[push] update-push-token failed:',
+        response.status,
+        await response.text().catch(() => ''),
+      );
+      return false;
+    }
+
     return true;
-  } catch {
-    // Non-fatal — push registration failure should not block app usage
+  } catch (err) {
+    // Non-fatal — push registration failure should not block app usage.
+    // But it MUST be visible: on Android this throws when the build has no
+    // FCM credentials (missing google-services.json), which otherwise
+    // silently leaves expo_push_token null and every push undelivered.
+    console.warn('[push] registration failed:', err);
     return false;
   }
 }

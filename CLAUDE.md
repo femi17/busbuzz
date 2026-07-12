@@ -1,6 +1,6 @@
 # BusBuzz — CLAUDE.md
 # Master context file. Read this at the start of every Claude Code session.
-# Last updated: reflects lean stack decisions — Supabase-first, no NestJS, no Traccar, no Cloudinary, no Firebase, no Termii at MVP.
+# Last updated: reflects lean stack decisions — Supabase-first, no NestJS, no Traccar, no Cloudinary, no Termii at MVP. (One exception discovered post-launch: Android push requires a free Firebase project for FCM credentials — see Push Notification Flow.)
 
 ---
 
@@ -21,7 +21,7 @@ BusBuzz is a school bus tracking platform for Lagos private schools.
 - No Traccar — no binary TCP protocol — GPS comes straight from the app
 - No NestJS — Supabase Edge Functions handle all API logic
 - No Socket.io — Supabase Realtime handles live GPS broadcasting
-- No Firebase — Expo Push Notification Service handles push (free)
+- No Firebase *products* — but Android push DOES need a free Firebase project for FCM credentials (google-services.json + FCM V1 key in EAS). Expo's push service rides on FCM; it does not replace it. See Push Notification Flow.
 - No Cloudinary — Supabase Storage handles file uploads
 - No Termii at MVP — Supabase Auth email OTP for parents (add SMS later when revenue exists)
 - No Turborepo — simple folder structure, one repo
@@ -66,7 +66,7 @@ busbuzz/
 | Mobile (parent + driver) | React Native + Expo SDK 51 | Free | Single codebase, two app configs |
 | Mobile maps (parent app) | Mapbox (@rnmapbox/maps) | Free tier (50k loads/mo) then usage-based | Switched back from react-native-maps/Google Maps SDK for Android after persistent map-not-rendering issues tied to Google Cloud Console key/billing setup. Needs a native rebuild (not Expo Go) — requires both a public token (`EXPO_PUBLIC_MAPBOX_TOKEN`) and a secret downloads token (`RNMAPBOX_MAPS_DOWNLOAD_TOKEN`, build-time only) |
 | Web admin maps | Google Maps JavaScript API + Places | $200/mo free credit (~28k loads) | Only used in web dashboard — low load count. Web dashboard was on Mapbox before this, switched to Google for better Lagos coverage. Independent of the mobile maps choice above — the two don't need to match |
-| Push notifications | Expo Push Notification Service | Free | Handles both Android (FCM) and iOS (APNS) via Expo |
+| Push notifications | Expo Push Notification Service | Free | Delivers via FCM (Android) / APNS (iOS). Android standalone builds REQUIRE a free Firebase project: google-services.json in the build + FCM V1 service account key uploaded to EAS credentials. Without it, getExpoPushTokenAsync() throws and pushes silently never deliver |
 | Web hosting | Vercel | Free | Next.js deploys in seconds |
 | Driver GPS | expo-location (background) | Free | Built into Expo — no hardware needed |
 | Device management | Android Kiosk Mode (Device Owner) | Free | One ADB command per device locks phone to driver app only |
@@ -317,8 +317,20 @@ send-push Edge Function
   → POST https://exp.host/--/api/v2/push/send
       body: [{ to: expoPushToken, title, body, data }]
   → Expo service delivers to Android (via FCM) and iOS (via APNS) for free
-  → No Firebase account needed — Expo manages FCM/APNS credentials
 ```
+
+**Android FCM setup (one-time, required — pushes silently fail without it):**
+1. Create a free Firebase project (no billing) at console.firebase.google.com
+2. Add BOTH Android apps to it: `com.busbuzz.parent` and `com.busbuzz.driver`
+3. Download the combined `google-services.json` → place at `mobile/google-services.json`
+   (gitignored — repo is public; for EAS builds store it as a file-type env var
+   named `GOOGLE_SERVICES_JSON` instead: `eas env:create --scope project --name
+   GOOGLE_SERVICES_JSON --type file`. app.config.ts picks up either.)
+4. Firebase console → Project settings → Service accounts → Generate new private
+   key, then upload it via `eas credentials` (Android → Google Service Account
+   Key → FCM V1) — do this for both app variants
+5. Rebuild both apps. Registration failures now log `[push] registration failed`
+   in the app console instead of being swallowed.
 
 ---
 

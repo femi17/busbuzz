@@ -84,8 +84,11 @@ async function registerForPushNotifications(accessToken: string) {
       },
       body: JSON.stringify({ expoPushToken: tokenResponse.data }),
     });
-  } catch {
-    // Non-fatal — push registration failure should not block app usage
+  } catch (err) {
+    // Non-fatal — push registration failure should not block app usage.
+    // Visible warning: on Android this throws when the build lacks FCM
+    // credentials (missing google-services.json).
+    console.warn('[push] registration failed:', err);
   }
 }
 
