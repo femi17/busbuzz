@@ -5,6 +5,7 @@ import Link from 'next/link';
 import { ArrowLeft, Upload, X, Save, ChevronDown, ChevronUp, UserX } from 'lucide-react';
 import { createClient } from '@/lib/supabase';
 import { loadGoogleMaps } from '@/lib/google-maps';
+import { haversineDistance } from '../../../../../shared/geo';
 
 /* ── Google Maps loader ─────────────────────────────────────── */
 
@@ -30,6 +31,7 @@ function useGoogleMaps(): boolean {
 // afternoon runs.
 type TripType = 'MORNING' | 'AFTERNOON' | 'BOTH';
 type RouteOption = { id: string; name: string };
+type RouteStop = { id: string; latitude: number; longitude: number };
 
 type MapStudent = {
   id: string;          // actual UUID for existing, `draft-${ts}` for new
@@ -62,6 +64,7 @@ export default function StudentMapPage() {
   const [schoolCenterReady, setSchoolCenterReady] = useState(false);
 
   const [students, setStudents] = useState<MapStudent[]>([]);
+  const [routeStops, setRouteStops] = useState<RouteStop[]>([]);
   const [noParentCount, setNoParentCount] = useState(0);
   const [selectedId, setSelectedId] = useState<string | null>(null);
 
@@ -163,6 +166,7 @@ export default function StudentMapPage() {
   useEffect(() => {
     if (!selectedRouteId || !mapsLoaded) {
       setStudents([]);
+      setRouteStops([]);
       setNoParentCount(0);
       return;
     }
@@ -172,11 +176,30 @@ export default function StudentMapPage() {
     async function loadRoute() {
       setIsLoadingRoute(true);
       setStudents([]);
+      setRouteStops([]);
       setNoParentCount(0);
       setSelectedId(null);
 
       try {
         const supabase = createClient();
+
+        // The route's stops (with coords) — every mapped student is assigned
+        // to the nearest one on save, because the driver app navigates stop by
+        // stop and a student with no stop_id can't be placed at a single one.
+        const { data: stopData } = await supabase
+          .from('stops')
+          .select('id, latitude, longitude')
+          .eq('route_id', selectedRouteId);
+        if (!cancelled) {
+          setRouteStops(
+            (stopData ?? []).map((s) => ({
+              id: s.id,
+              latitude: s.latitude,
+              longitude: s.longitude,
+            })),
+          );
+        }
+
         const { data } = await supabase
           .from('students')
           .select('id, name, class_name, pickup_address, pickup_lat, pickup_lng, trip_type, student_parents(count)')
@@ -528,6 +551,28 @@ export default function StudentMapPage() {
     if (selectedId === id) setSelectedId(null);
   }
 
+  // Nearest route stop to a pin. The driver app groups students by stop_id and
+  // walks the route stop by stop, so a mapped student needs one — without it
+  // they show up at every stop (or none), which blocks the driver from ending
+  // the trip. routeStops only holds the SELECTED route's stops, so this is
+  // only valid for students on that route (CSV import can add students to
+  // other routes by name — those keep whatever stop they already had).
+  function nearestStopId(student: MapStudent): string | null {
+    if (student.routeId !== selectedRouteId || routeStops.length === 0) {
+      return null;
+    }
+    let best = routeStops[0];
+    let bestDist = haversineDistance(student.lat, student.lng, best.latitude, best.longitude);
+    for (const stop of routeStops.slice(1)) {
+      const d = haversineDistance(student.lat, student.lng, stop.latitude, stop.longitude);
+      if (d < bestDist) {
+        best = stop;
+        bestDist = d;
+      }
+    }
+    return best.id;
+  }
+
   /* ── save all dirty students (new drafts, and any existing pin that's been dragged) ── */
   async function handleSave() {
     const unsaved = students.filter(s => !s.saved);
@@ -556,6 +601,7 @@ export default function StudentMapPage() {
             pickup_lat: s.lat,
             pickup_lng: s.lng,
             route_id: s.routeId || null,
+            stop_id: nearestStopId(s),
             class_name: s.className || 'TBD',
             trip_type: s.tripType,
           })
@@ -572,6 +618,7 @@ export default function StudentMapPage() {
           pickup_lat: s.lat,
           pickup_lng: s.lng,
           route_id: s.routeId || null,
+          stop_id: nearestStopId(s),
           trip_type: s.tripType,
         }));
         const { error } = await supabase.from('students').insert(rows);
