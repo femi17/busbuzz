@@ -3,8 +3,8 @@
 import { motion } from 'framer-motion';
 
 const notifications = [
-  'Bus 2 min away — Ojuelegba Jct',
-  'Chidi boarded — 7:42 AM',
+  'Bus 2 min away — Chevron Estate',
+  'Chidi boarded — 7:38 AM',
   'Arrived at school — 8:14 AM',
 ];
 

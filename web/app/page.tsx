@@ -1,4 +1,5 @@
 import type { Metadata } from 'next';
+import type { ReactNode } from 'react';
 import { ArrowRight, Check } from 'lucide-react';
 import { LandingNav } from '@/components/LandingNav';
 import { FaqAccordion } from '@/components/FaqAccordion';
@@ -63,6 +64,89 @@ function Wordmark({ className = '' }: { className?: string }) {
   );
 }
 
+/* One timestamped moment on the morning-run timeline. */
+function RunMoment({
+  time,
+  actor,
+  actorClass,
+  title,
+  body,
+  visual,
+  last = false,
+}: {
+  time: string;
+  actor: string;
+  actorClass: string;
+  title: string;
+  body: string;
+  visual?: ReactNode;
+  last?: boolean;
+}) {
+  return (
+    <ScrollReveal>
+      <div className="grid grid-cols-[28px_1fr] md:grid-cols-[76px_28px_1fr] gap-x-3 md:gap-x-5">
+        {/* schedule time (desktop rail) */}
+        <p className="hidden md:block board-figure text-[15px] font-semibold text-ink text-right pt-1">{time}</p>
+
+        {/* stop dot + connecting rail */}
+        <div className="relative flex justify-center">
+          <span className="relative z-10 mt-1.5 h-3.5 w-3.5 rounded-full bg-amber border-[3px] border-night" />
+          {!last && <span className="absolute top-6 bottom-0 w-px bg-rule" aria-hidden />}
+        </div>
+
+        <div className={last ? '' : 'pb-12 md:pb-14'}>
+          <p className="font-mono text-[11px] font-semibold uppercase tracking-[0.16em]">
+            <span className="md:hidden board-figure text-ink normal-case tracking-normal mr-3">{time}</span>
+            <span className={actorClass}>{actor}</span>
+          </p>
+          <h3 className="font-heading font-bold text-[22px] md:text-[26px] text-ink leading-[1.1] mt-1.5">{title}</h3>
+          <p className="text-[15px] text-sub leading-relaxed mt-2 max-w-md">{body}</p>
+          {visual && <div className="mt-6">{visual}</div>}
+        </div>
+      </div>
+    </ScrollReveal>
+  );
+}
+
+/* Miniature of the driver phone at trip start. */
+function DriverPhoneMini() {
+  return (
+    <div className="w-full max-w-[210px] rounded-[24px] bg-night p-4 shadow-[var(--shadow-float)] border border-white/10">
+      <div className="h-1.5 w-10 mx-auto rounded-full bg-white/15 mb-4" />
+      <p className="font-mono text-[10px] text-white/50 text-center tracking-[0.14em] mb-4">MORNING SCHOOL RUN</p>
+      <div className="w-full bg-amber rounded-[14px] py-3.5 text-[15px] font-bold text-night text-center">
+        Start Trip
+      </div>
+      <p className="font-mono text-[10px] text-white/30 text-center mt-3">8 students · First stop → School</p>
+    </div>
+  );
+}
+
+/* Miniature of the school dashboard routes list. */
+function DashboardMini() {
+  return (
+    <div className="w-full max-w-[290px] rounded-[18px] bg-night p-4 shadow-[var(--shadow-float)] border border-white/10">
+      <div className="flex items-center justify-between mb-3.5">
+        <Wordmark className="text-[13px] text-white" />
+        <span className="font-mono text-[10px] text-white/40">3 routes live</span>
+      </div>
+      {[
+        { name: 'Greenfield Morning', val: 'On route', live: true },
+        { name: 'Sunrise Morning', val: 'Boarding', live: true },
+        { name: 'Central Express', val: 'Idle', live: false },
+      ].map((r) => (
+        <div key={r.name} className="flex items-center justify-between rounded-xl bg-white/[0.05] px-3 py-2.5 mb-2 last:mb-0">
+          <div className="flex items-center gap-2.5">
+            <span className={`h-1.5 w-1.5 rounded-full ${r.live ? 'bg-amber' : 'bg-white/25'}`} />
+            <span className="text-[13px] text-white/80">{r.name}</span>
+          </div>
+          <span className={`font-mono text-[11px] ${r.live ? 'text-amber' : 'text-white/35'}`}>{r.val}</span>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 export default function LandingPage() {
   return (
     <div className="min-h-screen bg-night">
@@ -70,27 +154,26 @@ export default function LandingPage() {
 
       {/* ── Hero ─────────────────────────────────────────────── */}
       <section className="relative overflow-hidden bg-night px-6 pt-32 pb-24 lg:pt-40 lg:pb-32">
-        {/* ambient danfo wash */}
-        <div className="absolute -top-40 -left-40 h-[500px] w-[500px] rounded-full bg-amber/10 blur-[120px] pointer-events-none" />
-        <div className="absolute top-1/3 right-0 h-[400px] w-[400px] rounded-full bg-navy/40 blur-[120px] pointer-events-none" />
+        {/* board surface — faint dot grid fading toward the fold */}
+        <div
+          className="absolute inset-0 dot-grid pointer-events-none"
+          style={{ maskImage: 'linear-gradient(to bottom, black, transparent 75%)', WebkitMaskImage: 'linear-gradient(to bottom, black, transparent 75%)' }}
+        />
 
         <div className="relative max-w-6xl mx-auto grid grid-cols-1 lg:grid-cols-[1.05fr_0.95fr] gap-14 lg:gap-10 items-center">
           <div className="text-center lg:text-left">
-            <div className="inline-flex items-center gap-2 rounded-[var(--radius-chip)] bg-white/[0.06] border border-white/10 pl-2.5 pr-4 py-1.5 mb-7">
-              <span className="relative flex h-2 w-2">
-                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-amber opacity-70" />
-                <span className="relative inline-flex rounded-full h-2 w-2 bg-amber" />
-              </span>
-              <span className="font-mono text-[11px] font-semibold tracking-[0.14em] text-white/70">
-                LIVE · NIGERIA
+            <div className="inline-flex items-center gap-2.5 mb-7">
+              <span className="h-3 w-8 hazard-stripe rounded-full" />
+              <span className="font-mono text-[11px] font-semibold tracking-[0.18em] text-white/60 uppercase">
+                Nigeria · Every school morning
               </span>
             </div>
 
-            <h1 className="font-heading font-extrabold text-white text-[46px] sm:text-[58px] lg:text-[68px] leading-[0.95]">
+            <h1 className="font-heading font-extrabold text-white text-[44px] sm:text-[56px] lg:text-[64px] leading-[0.98]">
               Know where the
               <br />
               school bus is.
-              <span className="block font-display italic font-normal text-amber mt-1 tracking-normal">
+              <span className="block text-amber mt-2">
                 Right now.
               </span>
             </h1>
@@ -101,19 +184,10 @@ export default function LandingPage() {
               nothing; we handle the device, the SIM, and the app.
             </p>
 
-            {/* departure-board micro-ticker */}
-            <div className="mt-7 inline-flex items-center gap-3 rounded-full border border-white/10 bg-black/30 px-4 py-2 font-mono text-[11px] tracking-[0.12em] text-white/50">
-              <span className="text-amber">NEXT STOP</span>
-              <span className="text-white/70">GREENFIELD ESTATE</span>
-              <span className="h-3 w-px bg-white/15" />
-              <span className="text-amber">ETA</span>
-              <span className="board-figure text-white/80">04:00</span>
-            </div>
-
             <div className="mt-9 flex flex-col sm:flex-row justify-center lg:justify-start gap-3.5">
               <a
                 href="mailto:hello@busbuzz.com.ng?subject=School Demo Request"
-                className="group inline-flex items-center justify-center gap-2 bg-amber text-night rounded-[var(--radius-btn)] px-7 py-3.5 text-base font-bold hover:brightness-105 active:scale-[0.98] transition-all duration-150 shadow-[0_16px_36px_-12px_rgba(255,201,0,0.6)]"
+                className="group inline-flex items-center justify-center gap-2 bg-amber text-night rounded-[var(--radius-btn)] px-7 py-3.5 text-base font-bold hover:brightness-105 active:scale-[0.98] transition-all duration-150"
               >
                 Book a school demo
                 <ArrowRight size={18} className="group-hover:translate-x-0.5 transition-transform duration-150" />
@@ -126,18 +200,18 @@ export default function LandingPage() {
               </a>
             </div>
 
-            {/* trust stats — departure-board numerals */}
+            {/* the three alerts of every trip — real sequence, echoed in the timeline below */}
             <div className="mt-14 flex justify-center lg:justify-start items-stretch">
               {[
-                { value: '12+', label: 'Schools' },
-                { value: '47', label: 'Buses live' },
-                { value: '800+', label: 'Parents' },
-              ].map((stat, i) => (
-                <div key={stat.label} className="flex items-stretch">
-                  {i > 0 && <div className="w-px bg-white/10 mx-6 sm:mx-8" />}
+                { time: '07:36', label: 'Bus approaching' },
+                { time: '07:38', label: 'Child boarded' },
+                { time: '08:14', label: 'Arrived at school' },
+              ].map((alert, i) => (
+                <div key={alert.time} className="flex items-stretch">
+                  {i > 0 && <div className="w-px bg-white/10 mx-5 sm:mx-7" />}
                   <div className="text-center lg:text-left">
-                    <p className="board-figure text-[30px] font-semibold text-white leading-none">{stat.value}</p>
-                    <p className="text-[12px] text-white/40 mt-1.5 uppercase tracking-wider">{stat.label}</p>
+                    <p className="board-figure text-[20px] sm:text-[24px] font-semibold text-white leading-none">{alert.time}</p>
+                    <p className="font-mono text-[10px] sm:text-[11px] text-white/40 mt-2 uppercase tracking-[0.14em]">{alert.label}</p>
                   </div>
                 </div>
               ))}
@@ -162,89 +236,68 @@ export default function LandingPage() {
         </ScrollReveal>
       </section>
 
-      {/* ── How it works ─────────────────────────────────────── */}
+      {/* ── How it works: a school run, minute by minute ─────── */}
       <section id="how-it-works" className="bg-canvas pb-28 px-6">
-        <ScrollReveal className="text-center max-w-2xl mx-auto mb-14">
+        <ScrollReveal className="text-center max-w-2xl mx-auto mb-16">
           <div className="inline-flex items-center gap-2.5 mb-5">
             <span className="h-3 w-8 hazard-stripe rounded-full" />
             <p className="font-mono text-[11px] font-semibold text-amber-dark uppercase tracking-[0.18em]">How it works</p>
           </div>
           <h2 className="font-heading font-bold text-ink text-[34px] md:text-[46px] leading-[1.05]">
-            One system. Three people. <span className="text-sub">Nobody trained.</span>
+            A school run, minute by minute.
           </h2>
+          <p className="text-[16px] text-sub mt-4 max-w-lg mx-auto">
+            One phone, mounted on the bus dashboard. Everything below happens on its own.
+          </p>
         </ScrollReveal>
 
-        <div className="max-w-5xl mx-auto space-y-4">
-          <ScrollReveal>
-            <div className="group bg-surface border border-rule/70 shadow-[var(--shadow-card)] rounded-[24px] p-8 md:p-10 grid grid-cols-1 md:grid-cols-2 gap-12 items-center hover:shadow-[var(--shadow-float)] hover:-translate-y-0.5 transition-all duration-200">
-              <div>
-                <p className="font-mono text-[11px] font-semibold text-amber-dark uppercase tracking-[0.16em] mb-4">For parents</p>
-                <h3 className="font-heading font-bold text-[30px] md:text-[34px] text-ink leading-[1.05]">The bus is two minutes away.</h3>
-                <p className="text-[16px] text-sub leading-relaxed mt-4 max-w-sm">
-                  An alert lands before the bus reaches your stop, the moment your child boards,
-                  and when they arrive at school. You never have to call anyone.
-                </p>
-              </div>
-              <div className="flex justify-center"><NotificationCards /></div>
-            </div>
-          </ScrollReveal>
-
-          <ScrollReveal delay={0.08}>
-            <div className="group bg-surface border border-rule/70 shadow-[var(--shadow-card)] rounded-[24px] p-8 md:p-10 grid grid-cols-1 md:grid-cols-2 gap-12 items-center hover:shadow-[var(--shadow-float)] hover:-translate-y-0.5 transition-all duration-200">
-              <div className="flex justify-center order-last md:order-first">
-                <div className="w-full max-w-[300px] rounded-[20px] bg-night p-5 shadow-[var(--shadow-float)] border border-white/10">
-                  <div className="flex items-center justify-between mb-4">
-                    <Wordmark className="text-[14px] text-white" />
-                    <span className="font-mono text-[10px] text-white/40">3 routes live</span>
-                  </div>
-                  {[
-                    { name: 'Greenfield Morning', val: 'On route', live: true },
-                    { name: 'Sunrise Afternoon', val: 'Boarding', live: true },
-                    { name: 'Central Express', val: 'Idle', live: false },
-                  ].map((r) => (
-                    <div key={r.name} className="flex items-center justify-between rounded-xl bg-white/[0.05] px-3 py-2.5 mb-2 last:mb-0">
-                      <div className="flex items-center gap-2.5">
-                        <span className={`h-1.5 w-1.5 rounded-full ${r.live ? 'bg-amber' : 'bg-white/25'}`} />
-                        <span className="text-[13px] text-white/80">{r.name}</span>
-                      </div>
-                      <span className={`font-mono text-[11px] ${r.live ? 'text-amber' : 'text-white/35'}`}>{r.val}</span>
-                    </div>
-                  ))}
-                </div>
-              </div>
-              <div>
-                <p className="font-mono text-[11px] font-semibold text-amber-dark uppercase tracking-[0.16em] mb-4">For schools</p>
-                <h3 className="font-heading font-bold text-[30px] md:text-[34px] text-ink leading-[1.05]">Zero work for your team.</h3>
-                <p className="text-[16px] text-sub leading-relaxed mt-4 max-w-sm">
-                  We install the device, manage the SIM, and run the app. One dashboard shows every
-                  bus, route, and student. All your school does is tell us which routes you run.
-                </p>
-              </div>
-            </div>
-          </ScrollReveal>
-
-          <ScrollReveal delay={0.16}>
-            <div className="group bg-surface border border-rule/70 shadow-[var(--shadow-card)] rounded-[24px] p-8 md:p-10 grid grid-cols-1 md:grid-cols-2 gap-12 items-center hover:shadow-[var(--shadow-float)] hover:-translate-y-0.5 transition-all duration-200">
-              <div>
-                <p className="font-mono text-[11px] font-semibold text-amber-dark uppercase tracking-[0.16em] mb-4">For drivers</p>
-                <h3 className="font-heading font-bold text-[30px] md:text-[34px] text-ink leading-[1.05]">One tap to start.</h3>
-                <p className="text-[16px] text-sub leading-relaxed mt-4 max-w-sm">
-                  The phone is mounted on the dashboard. The driver taps Start Trip, marks each
-                  child boarding, and taps End Trip. GPS broadcasts the whole way, automatically.
-                </p>
-              </div>
-              <div className="flex justify-center">
-                <div className="w-full max-w-[220px] rounded-[28px] bg-night p-4 shadow-[var(--shadow-float)] border border-white/10">
-                  <div className="h-1.5 w-10 mx-auto rounded-full bg-white/15 mb-4" />
-                  <p className="font-mono text-[11px] text-white/50 text-center tracking-wide mb-4">MORNING SCHOOL RUN</p>
-                  <div className="w-full bg-amber rounded-[16px] py-4 text-[16px] font-bold text-night text-center shadow-[0_10px_24px_-10px_rgba(255,201,0,0.7)]">
-                    Start Trip
-                  </div>
-                  <p className="font-mono text-[10px] text-white/30 text-center mt-3">8 students · First stop → School</p>
-                </div>
-              </div>
-            </div>
-          </ScrollReveal>
+        <div className="max-w-3xl mx-auto">
+          <RunMoment
+            time="06:52"
+            actor="Driver"
+            actorClass="text-amber-dark"
+            title="One tap: Start Trip."
+            body="The mounted phone begins broadcasting GPS every ten seconds. From here, the driver just drives — and marks each child as they board."
+            visual={<DriverPhoneMini />}
+          />
+          <RunMoment
+            time="07:36"
+            actor="Parent"
+            actorClass="text-navy"
+            title="Bus is 2 minutes from Chevron Estate."
+            body="The approach alert lands before the bus reaches the stop. Chidi walks out as it pulls in — not twenty minutes early, not two minutes late."
+            visual={<NotificationCards />}
+          />
+          <RunMoment
+            time="07:38"
+            actor="Parent"
+            actorClass="text-navy"
+            title="Chidi has boarded."
+            body="The driver marks him on. His parents get the confirmation the same second, and can watch the bus the rest of the way in."
+          />
+          <RunMoment
+            time="07:47"
+            actor="School"
+            actorClass="text-green"
+            title="Every bus on one dashboard."
+            body="The front office sees all routes live — position, students boarded, stops remaining. Nobody phones a driver mid-run to ask where he is."
+            visual={<DashboardMini />}
+          />
+          <RunMoment
+            time="08:14"
+            actor="Parent"
+            actorClass="text-navy"
+            title="Arrived at school."
+            body="The run closes with a final alert, and the trip is saved to history. No guesswork, no calls."
+          />
+          <RunMoment
+            time="15:45"
+            actor="Afternoon run"
+            actorClass="text-sub"
+            title="The trip home works the same way."
+            body="Same alerts, in reverse: bus leaving school, child boarded, dropped at their own stop."
+            last
+          />
         </div>
       </section>
 
