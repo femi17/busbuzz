@@ -14,8 +14,12 @@ import {
 } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 
+import * as Location from 'expo-location';
+
+import { haversineDistance } from '../../../../shared/geo';
 import type { AttendanceStatus } from '../../../../shared/types';
 import { supabase } from '../../lib/supabase';
+import { ConfirmDialog } from './components/ConfirmDialog';
 import {
   AlertDiamondIcon,
   BusFrontIcon,
@@ -25,6 +29,14 @@ import {
 import type { DriverStackParamList } from './DriverApp';
 import { stopGPSBroadcast } from './gpsService';
 import { color, radius, space } from './theme';
+
+// Synthetic id for the school end of the run — the school is not an authored
+// route stop, but the run starts/ends there.
+const SCHOOL_STOP_ID = '__school__';
+// A stop authored this close to the school IS the school (avoid doubling it).
+const SCHOOL_MATCH_RADIUS_M = 200;
+// "Back at school" for the auto-end check.
+const SCHOOL_ARRIVE_RADIUS_M = 300;
 
 type Props = NativeStackScreenProps<DriverStackParamList, 'Attendance'>;
 
@@ -56,8 +68,18 @@ const STATUS_BG: Record<AttendanceStatus, string> = {
 };
 
 export default function AttendanceScreen({ navigation, route }: Props) {
-  const { tripId, stops, students, busId, routeName, direction, routeType } =
-    route.params;
+  const {
+    tripId,
+    stops,
+    students,
+    busId,
+    routeName,
+    direction,
+    routeType,
+    schoolName,
+    schoolLat,
+    schoolLng,
+  } = route.params;
   const insets = useSafeAreaInsets();
 
   const [currentStopIndex, setCurrentStopIndex] = useState(0);
@@ -77,23 +99,43 @@ export default function AttendanceScreen({ navigation, route }: Props) {
   // run drives it back, so the stop sequence reverses. Dedicated AFTERNOON
   // routes keep the order the admin authored.
   //
-  // Stops with no students riding THIS run are dropped entirely (the students
-  // list is already filtered by trip_type server-side): a morning-only
-  // student's street must not appear on the afternoon run, or the driver is
-  // forced through empty stops before the trip can end. The school endpoint
-  // (morning's last stop / afternoon's first) always stays — it's where the
-  // run itself starts or finishes.
+  // The SCHOOL is not an authored street stop — it's synthesized as the run's
+  // endpoint: morning = streets are pickups only, then one final
+  // "drop everyone at school" phase; afternoon = board everyone at school,
+  // then streets are drop-offs. This is what keeps drop-off UI from ever
+  // appearing at a street mid-morning. Authored stops that sit at the school
+  // (within 200m) are folded into the synthetic one, and street stops with no
+  // students riding THIS run are skipped entirely.
   const sortedStops = useMemo(() => {
     const asc = [...stops].sort((a, b) => a.sequence - b.sequence);
     const ordered =
       direction === 'AFTERNOON' && routeType === 'BOTH' ? asc.reverse() : asc;
-    return ordered.filter((stop, index) => {
-      const isSchoolEnd =
-        direction === 'MORNING' ? index === ordered.length - 1 : index === 0;
-      if (isSchoolEnd) return true;
-      return students.some((s) => s.stopId === stop.id || s.stopId === null);
-    });
-  }, [stops, direction, routeType, students]);
+
+    const atSchool = (s: { latitude: number; longitude: number }) =>
+      schoolLat != null &&
+      schoolLng != null &&
+      haversineDistance(s.latitude, s.longitude, schoolLat, schoolLng) <=
+        SCHOOL_MATCH_RADIUS_M;
+
+    const streets = ordered.filter(
+      (stop) =>
+        !atSchool(stop) &&
+        students.some((s) => s.stopId === stop.id || s.stopId === null),
+    );
+
+    const schoolStop = {
+      id: SCHOOL_STOP_ID,
+      routeId: ordered[0]?.routeId ?? '',
+      name: schoolName?.trim() || 'School',
+      latitude: schoolLat ?? 0,
+      longitude: schoolLng ?? 0,
+      sequence: -1,
+    };
+
+    return direction === 'MORNING'
+      ? [...streets, schoolStop]
+      : [schoolStop, ...streets];
+  }, [stops, direction, routeType, students, schoolName, schoolLat, schoolLng]);
 
   const isLastStop = currentStopIndex === sortedStops.length - 1;
   const currentStop = sortedStops[currentStopIndex];
@@ -220,52 +262,35 @@ export default function AttendanceScreen({ navigation, route }: Props) {
     if (ok) setSheetStudentId(null);
   }
 
-  function handleSOS() {
-    Alert.alert(
-      'SOS Alert',
-      'This will alert all school administrators. Continue?',
-      [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: 'Send SOS',
-          style: 'destructive',
-          onPress: async () => {
-            try {
-              const {
-                data: { session },
-              } = await supabase.auth.getSession();
+  const [showSosConfirm, setShowSosConfirm] = useState(false);
 
-              if (!session?.access_token) return;
+  async function sendSOS() {
+    setShowSosConfirm(false);
+    try {
+      const {
+        data: { session },
+      } = await supabase.auth.getSession();
 
-              const supabaseUrl = process.env.EXPO_PUBLIC_SUPABASE_URL;
-              const response = await fetch(
-                `${supabaseUrl}/functions/v1/sos-alert`,
-                {
-                  method: 'POST',
-                  headers: {
-                    'Content-Type': 'application/json',
-                    'Authorization': `Bearer ${session.access_token}`,
-                  },
-                  body: JSON.stringify({ busId }),
-                },
-              );
+      if (!session?.access_token) return;
 
-              if (response.ok) {
-                Alert.alert('SOS alert sent to administrators');
-              } else {
-                Alert.alert(
-                  'Failed to send SOS. Please call the school directly.',
-                );
-              }
-            } catch {
-              Alert.alert(
-                'Failed to send SOS. Please call the school directly.',
-              );
-            }
-          },
+      const supabaseUrl = process.env.EXPO_PUBLIC_SUPABASE_URL;
+      const response = await fetch(`${supabaseUrl}/functions/v1/sos-alert`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${session.access_token}`,
         },
-      ],
-    );
+        body: JSON.stringify({ busId }),
+      });
+
+      if (response.ok) {
+        Alert.alert('SOS sent', 'The school and parents on this route have been alerted.');
+      } else {
+        Alert.alert('Failed to send SOS. Please call the school directly.');
+      }
+    } catch {
+      Alert.alert('Failed to send SOS. Please call the school directly.');
+    }
   }
 
   function handleNextStop() {
@@ -283,6 +308,15 @@ export default function AttendanceScreen({ navigation, route }: Props) {
         Alert.alert('Error', 'Session expired. Please log in again.');
         setIsEndingTrip(false);
         return;
+      }
+
+      // Anyone still on board is being dropped at the school right now —
+      // record it so parents get their "dropped off" moment.
+      const stillOnBoard = students.filter(
+        (s) => attendanceMap[s.id] === 'BOARDED',
+      );
+      for (const s of stillOnBoard) {
+        await markStudent(s.id, 'DROPPED_OFF');
       }
 
       const supabaseUrl = process.env.EXPO_PUBLIC_SUPABASE_URL;
@@ -313,6 +347,16 @@ export default function AttendanceScreen({ navigation, route }: Props) {
 
   const isBoardStop = isBoardStopAt(currentStopIndex);
   const currentStopStudents = studentsForStop(currentStopIndex);
+  const isSchoolPhase = currentStop?.id === SCHOOL_STOP_ID;
+
+  // Each student's own street (their assigned stop) — shown at the school
+  // phase where the whole bus is listed, so rows aren't all captioned with
+  // one street name.
+  const stopNameById = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const s of stops) map.set(s.id, s.name);
+    return map;
+  }, [stops]);
 
   // Only students with a real saved pickup location get a pin — showing a
   // fallback here (e.g. the school) would send the driver to the wrong door.
@@ -349,14 +393,57 @@ export default function AttendanceScreen({ navigation, route }: Props) {
     isDoneAtStop(attendanceMap[s.id], isBoardStop),
   );
 
-  // The trip can end only when every student on this journey has reached a
-  // terminal state — dropped off or absent.
-  const tripComplete = students.every(
-    (s) =>
-      attendanceMap[s.id] === 'DROPPED_OFF' ||
-      attendanceMap[s.id] === 'ABSENT',
-  );
-  const canEndTrip = isLastStop && tripComplete;
+  // The trip can end once every student is accounted for (boarded, dropped,
+  // or absent) and the driver is at the run's final stop. Students still on
+  // board when the trip ends at school are marked DROPPED_OFF automatically —
+  // that's what physically happened.
+  const pendingDropCount = students.filter(
+    (s) => attendanceMap[s.id] === 'BOARDED',
+  ).length;
+  const allAccounted = students.every((s) => !!attendanceMap[s.id]);
+  const canEndTrip = isLastStop && allAccounted;
+
+  // Forgot to end the trip? Once every pickup is done on the morning run,
+  // watch the phone's own GPS; when the bus is back at the school, jump to
+  // the school phase and offer to end the trip on the driver's behalf
+  // (remaining riders are marked dropped off on confirm).
+  const autoEndPromptedRef = useRef(false);
+  useEffect(() => {
+    if (direction !== 'MORNING' || autoEndPromptedRef.current) return;
+    if (!allAccounted || showEndConfirm) return;
+    if (schoolLat == null || schoolLng == null) return;
+
+    let cancelled = false;
+    const check = async () => {
+      try {
+        const pos = await Location.getCurrentPositionAsync({
+          accuracy: Location.Accuracy.Balanced,
+        });
+        if (cancelled || autoEndPromptedRef.current) return;
+        const dist = haversineDistance(
+          pos.coords.latitude,
+          pos.coords.longitude,
+          schoolLat,
+          schoolLng,
+        );
+        if (dist <= SCHOOL_ARRIVE_RADIUS_M) {
+          autoEndPromptedRef.current = true;
+          setCurrentStopIndex(sortedStops.length - 1);
+          setShowEndConfirm(true);
+        }
+      } catch {
+        // GPS unavailable — the driver can still end manually.
+      }
+    };
+
+    check();
+    const intervalId = setInterval(check, 30_000);
+    return () => {
+      cancelled = true;
+      clearInterval(intervalId);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [direction, allAccounted, showEndConfirm, schoolLat, schoolLng, sortedStops.length]);
 
   const droppedCount = students.filter(
     (s) => attendanceMap[s.id] === 'DROPPED_OFF',
@@ -380,6 +467,15 @@ export default function AttendanceScreen({ navigation, route }: Props) {
 
   return (
     <View style={styles.container}>
+      <ConfirmDialog
+        visible={showSosConfirm}
+        title="Send SOS?"
+        message="This alerts all school administrators AND every parent on this route, with the bus's current location."
+        confirmLabel="SEND SOS"
+        destructive
+        onCancel={() => setShowSosConfirm(false)}
+        onConfirm={sendSOS}
+      />
       <SafeAreaView edges={['top']} style={styles.headerSafe}>
         <View style={styles.header}>
           <View style={styles.brandRow}>
@@ -397,7 +493,7 @@ export default function AttendanceScreen({ navigation, route }: Props) {
             </View>
             <Pressable
               style={({ pressed }) => [styles.sosDiamond, pressed && styles.pressed]}
-              onPress={handleSOS}
+              onPress={() => setShowSosConfirm(true)}
               accessibilityLabel="Send SOS alert"
             >
               <AlertDiamondIcon size={20} color={color.stopRed} />
@@ -498,7 +594,11 @@ export default function AttendanceScreen({ navigation, route }: Props) {
                 <Text style={styles.studentName} numberOfLines={1}>
                   {item.name}
                 </Text>
-                <Text style={styles.studentClass}>{item.className}</Text>
+                <Text style={styles.studentClass} numberOfLines={1}>
+                  {isSchoolPhase && item.stopId && stopNameById.get(item.stopId)
+                    ? `${item.className} · ${stopNameById.get(item.stopId)}`
+                    : item.className}
+                </Text>
               </View>
               {canMark ? (
                 <View style={styles.markCue}>
@@ -595,7 +695,8 @@ export default function AttendanceScreen({ navigation, route }: Props) {
                 <View style={styles.sheetStat}>
                   <Text style={styles.sheetStatLabel}>Stop</Text>
                   <Text style={styles.sheetStatValue} numberOfLines={1}>
-                    {currentStop?.name}
+                    {(sheetStudent.stopId && stopNameById.get(sheetStudent.stopId)) ||
+                      currentStop?.name}
                   </Text>
                 </View>
                 <View style={styles.sheetStat}>
@@ -691,7 +792,9 @@ export default function AttendanceScreen({ navigation, route }: Props) {
             </View>
 
             <Text style={styles.endNote}>
-              GPS tracking stops and the trip is marked complete.
+              {pendingDropCount > 0
+                ? `${pendingDropCount} student${pendingDropCount === 1 ? '' : 's'} still on board will be marked dropped off at ${schoolName?.trim() || 'school'}. GPS tracking stops and the trip is marked complete.`
+                : 'GPS tracking stops and the trip is marked complete.'}
             </Text>
 
             <Pressable

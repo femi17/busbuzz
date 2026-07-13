@@ -21,6 +21,7 @@ import {
   RouteIcon,
   UsersIcon,
 } from './components/Icons';
+import { ConfirmDialog } from './components/ConfirmDialog';
 import type { DriverStackParamList } from './DriverApp';
 import { startGPSBroadcast } from './gpsService';
 import { color, radius, space } from './theme';
@@ -50,8 +51,13 @@ type LoadedState = {
   // "BOTH": one journey at a time.
   runDirection: 'MORNING' | 'AFTERNOON';
   schoolName: string | null;
+  schoolLat: number | null;
+  schoolLng: number | null;
   studentCount: number;
   stopCount: number;
+  // Students on this run with no saved pickup position — the only time the
+  // driver needs to (re)arrange the order.
+  unarrangedCount: number;
   activeTrip: {
     id: string;
     stops: Stop[];
@@ -85,7 +91,7 @@ export default function TodayScreen({ navigation }: Props) {
 
       const { data: profile, error: profileError } = await supabase
         .from('profiles')
-        .select('name, school_id, schools(name)')
+        .select('name, school_id, schools(name, latitude, longitude)')
         .eq('id', session.user.id)
         .single();
 
@@ -95,8 +101,12 @@ export default function TodayScreen({ navigation }: Props) {
         return;
       }
 
-      const schoolRow = profile.schools as { name: string } | { name: string }[] | null;
-      const schoolName = Array.isArray(schoolRow) ? schoolRow[0]?.name ?? null : schoolRow?.name ?? null;
+      type SchoolRow = { name: string; latitude: number | null; longitude: number | null };
+      const schoolField = profile.schools as SchoolRow | SchoolRow[] | null;
+      const school = Array.isArray(schoolField) ? schoolField[0] ?? null : schoolField;
+      const schoolName = school?.name ?? null;
+      const schoolLat = school?.latitude ?? null;
+      const schoolLng = school?.longitude ?? null;
 
       const { data: buses, error: busesError } = await supabase
         .from('buses')
@@ -149,6 +159,17 @@ export default function TodayScreen({ navigation }: Props) {
         .from('stops')
         .select('id', { count: 'exact', head: true })
         .eq('route_id', route.id);
+
+      // Pickup order is arranged once and persists (pickup_sequence). The only
+      // time the driver needs the arrange screen again is when a student on
+      // this run has never been placed — i.e. a new joiner.
+      const { count: unarrangedCount } = await supabase
+        .from('students')
+        .select('id', { count: 'exact', head: true })
+        .eq('route_id', route.id)
+        .eq('is_active', true)
+        .in('trip_type', [runDirection, 'BOTH'])
+        .is('pickup_sequence', null);
 
       const { data: existingTrip, error: tripError } = await supabase
         .from('trips')
@@ -232,8 +253,11 @@ export default function TodayScreen({ navigation }: Props) {
         routeType: route.type,
         runDirection,
         schoolName,
+        schoolLat,
+        schoolLng,
         studentCount: studentCount ?? 0,
         stopCount: stopCount ?? 0,
+        unarrangedCount: unarrangedCount ?? 0,
         activeTrip,
       });
     } catch {
@@ -307,6 +331,9 @@ export default function TodayScreen({ navigation }: Props) {
         routeName: trip.route.name,
         direction: trip.direction ?? state.runDirection,
         routeType: trip.route.type ?? state.routeType,
+        schoolName: state.schoolName,
+        schoolLat: state.schoolLat,
+        schoolLng: state.schoolLng,
       });
     } catch {
       Alert.alert('Error', 'Failed to start trip.');
@@ -333,60 +360,45 @@ export default function TodayScreen({ navigation }: Props) {
         routeName: state.activeTrip.routeName,
         direction: state.activeTrip.direction,
         routeType: state.activeTrip.routeType,
+        schoolName: state.schoolName,
+        schoolLat: state.schoolLat,
+        schoolLng: state.schoolLng,
       });
     } catch {
       Alert.alert('Error', 'Failed to resume trip GPS broadcast.');
     }
   }
 
-  function handleSOS() {
+  const [showSosConfirm, setShowSosConfirm] = useState(false);
+
+  async function sendSOS() {
     if (!state) return;
+    setShowSosConfirm(false);
+    try {
+      const {
+        data: { session },
+      } = await supabase.auth.getSession();
 
-    Alert.alert(
-      'SOS Alert',
-      'This will alert all school administrators. Continue?',
-      [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: 'Send SOS',
-          style: 'destructive',
-          onPress: async () => {
-            try {
-              const {
-                data: { session },
-              } = await supabase.auth.getSession();
+      if (!session?.access_token) return;
 
-              if (!session?.access_token) return;
-
-              const supabaseUrl = process.env.EXPO_PUBLIC_SUPABASE_URL;
-              const response = await fetch(
-                `${supabaseUrl}/functions/v1/sos-alert`,
-                {
-                  method: 'POST',
-                  headers: {
-                    'Content-Type': 'application/json',
-                    'Authorization': `Bearer ${session.access_token}`,
-                  },
-                  body: JSON.stringify({ busId: state.busId }),
-                },
-              );
-
-              if (response.ok) {
-                Alert.alert('SOS alert sent to administrators');
-              } else {
-                Alert.alert(
-                  'Failed to send SOS. Please call the school directly.',
-                );
-              }
-            } catch {
-              Alert.alert(
-                'Failed to send SOS. Please call the school directly.',
-              );
-            }
-          },
+      const supabaseUrl = process.env.EXPO_PUBLIC_SUPABASE_URL;
+      const response = await fetch(`${supabaseUrl}/functions/v1/sos-alert`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${session.access_token}`,
         },
-      ],
-    );
+        body: JSON.stringify({ busId: state.busId }),
+      });
+
+      if (response.ok) {
+        Alert.alert('SOS sent', 'The school and parents on this route have been alerted.');
+      } else {
+        Alert.alert('Failed to send SOS. Please call the school directly.');
+      }
+    } catch {
+      Alert.alert('Failed to send SOS. Please call the school directly.');
+    }
   }
 
   if (isLoading) {
@@ -426,6 +438,15 @@ export default function TodayScreen({ navigation }: Props) {
 
   return (
     <View style={styles.container}>
+      <ConfirmDialog
+        visible={showSosConfirm}
+        title="Send SOS?"
+        message="This alerts all school administrators AND every parent on this route, with the bus's current location."
+        confirmLabel="SEND SOS"
+        destructive
+        onCancel={() => setShowSosConfirm(false)}
+        onConfirm={sendSOS}
+      />
       <SafeAreaView edges={['top']} style={styles.headerSafe}>
         <View style={styles.header}>
           <View style={styles.brandRow}>
@@ -438,7 +459,7 @@ export default function TodayScreen({ navigation }: Props) {
           </View>
           <Pressable
             style={({ pressed }) => [styles.sosDiamond, pressed && styles.pressed]}
-            onPress={handleSOS}
+            onPress={() => setShowSosConfirm(true)}
             accessibilityLabel="Send SOS alert"
           >
             <AlertDiamondIcon size={22} color={color.stopRed} />
@@ -510,10 +531,16 @@ export default function TodayScreen({ navigation }: Props) {
           <View style={styles.readyDot} />
         </View>
 
-        {/* Pickup order — arranged once, kept until the road changes */}
+        {/* Pickup order — arranged ONCE and remembered (pickup_sequence).
+            Only demands attention when a new student has joined the route
+            and has no position yet; otherwise it's a quiet edit entry. */}
         {!state.activeTrip && (
           <Pressable
-            style={({ pressed }) => [styles.locCard, pressed && styles.pressed]}
+            style={({ pressed }) => [
+              styles.locCard,
+              state.unarrangedCount > 0 && styles.locCardAttention,
+              pressed && styles.pressed,
+            ]}
             onPress={() =>
               navigation.navigate('PickupOrder', {
                 routeId: state.routeId,
@@ -528,8 +555,19 @@ export default function TodayScreen({ navigation }: Props) {
             </View>
             <View style={styles.locMeta}>
               <Text style={styles.locLabel}>Pickup order</Text>
-              <Text style={styles.locValue}>Arrange who you pick first</Text>
+              {state.unarrangedCount > 0 ? (
+                <Text style={styles.locValueAttention}>
+                  {state.unarrangedCount} new student{state.unarrangedCount === 1 ? '' : 's'} to place
+                </Text>
+              ) : (
+                <Text style={styles.locValue}>Saved — tap to change</Text>
+              )}
             </View>
+            {state.unarrangedCount > 0 ? (
+              <View style={styles.attentionBadge}>
+                <Text style={styles.attentionBadgeText}>{state.unarrangedCount}</Text>
+              </View>
+            ) : null}
             <Text style={styles.cardChevron}>›</Text>
           </Pressable>
         )}
@@ -753,6 +791,31 @@ const styles = StyleSheet.create({
     height: 10,
     borderRadius: 5,
     backgroundColor: color.routeGreen,
+  },
+  locCardAttention: {
+    borderWidth: 2,
+    borderColor: color.danfo,
+  },
+  locValueAttention: {
+    fontSize: 16,
+    fontWeight: '800',
+    color: color.danfoDim,
+    letterSpacing: 0.5,
+    marginTop: 2,
+  },
+  attentionBadge: {
+    minWidth: 26,
+    height: 26,
+    borderRadius: 13,
+    paddingHorizontal: 7,
+    backgroundColor: color.danfo,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  attentionBadgeText: {
+    fontSize: 13,
+    fontWeight: '800',
+    color: color.ink,
   },
   cardChevron: {
     fontSize: 28,

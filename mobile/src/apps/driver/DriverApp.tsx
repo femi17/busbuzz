@@ -43,6 +43,12 @@ export type DriverStackParamList = {
     // reverses the stop order on the afternoon run.
     direction: 'MORNING' | 'AFTERNOON';
     routeType: 'MORNING' | 'AFTERNOON' | 'BOTH';
+    // The school itself — used to synthesize the school end of the run
+    // (morning: final drop-everyone; afternoon: initial board-everyone) so
+    // street stops never show drop-off UI mid-morning.
+    schoolName: string | null;
+    schoolLat: number | null;
+    schoolLng: number | null;
   };
   PickupOrder: {
     routeId: string;

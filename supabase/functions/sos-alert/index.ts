@@ -1,5 +1,10 @@
 import { createClient } from 'npm:@supabase/supabase-js@2';
-import { sosAlertSchema } from '../../../shared/schemas.ts';
+import { z } from 'zod';
+
+// Inlined (was ../../../shared/schemas.ts) so the deploy bundler ships one file.
+const sosAlertSchema = z.object({
+  busId: z.string().uuid(),
+});
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -124,6 +129,32 @@ Deno.serve(async (req: Request) => {
     console.error('[sos-alert] Failed to flag trip has_sos:', sosFlagError);
   }
 
+  // Where did the breakdown happen? Use the active trip's latest GPS ping.
+  const { data: activeTrip } = await serviceSupabase
+    .from('trips')
+    .select('id, route_id')
+    .eq('bus_id', validated.busId)
+    .eq('status', 'ACTIVE')
+    .maybeSingle();
+
+  let locationText = '';
+  let sosLat: number | null = null;
+  let sosLng: number | null = null;
+  if (activeTrip) {
+    const { data: lastPing } = await serviceSupabase
+      .from('trip_locations')
+      .select('latitude, longitude')
+      .eq('trip_id', activeTrip.id)
+      .order('recorded_at', { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    if (lastPing) {
+      sosLat = lastPing.latitude;
+      sosLng = lastPing.longitude;
+      locationText = ` Location: https://maps.google.com/?q=${lastPing.latitude},${lastPing.longitude}`;
+    }
+  }
+
   // Query SCHOOL_ADMIN users for this school
   const { data: schoolAdmins, error: schoolAdminsError } =
     await serviceSupabase
@@ -157,45 +188,79 @@ Deno.serve(async (req: Request) => {
     ...(superAdmins ?? []).map((a) => a.id),
   ];
 
-  if (adminIds.length === 0) {
+  // Parents of active students on the affected route — they deserve to know
+  // about a breakdown too, not just the school.
+  const parentIds = new Set<string>();
+  if (activeTrip?.route_id) {
+    const { data: parentRows } = await serviceSupabase
+      .from('students')
+      .select('student_parents(parent_id)')
+      .eq('route_id', activeTrip.route_id)
+      .eq('is_active', true);
+    for (const row of (parentRows ?? []) as Array<{
+      student_parents: Array<{ parent_id: string }> | { parent_id: string } | null;
+    }>) {
+      const sp = row.student_parents;
+      if (Array.isArray(sp)) {
+        for (const e of sp) if (e?.parent_id) parentIds.add(e.parent_id);
+      } else if (sp?.parent_id) {
+        parentIds.add(sp.parent_id);
+      }
+    }
+  }
+
+  if (adminIds.length === 0 && parentIds.size === 0) {
     return jsonResponse(
-      { data: { sent: false }, message: 'No admins to notify' },
+      { data: { sent: false }, message: 'No one to notify' },
       200,
     );
   }
 
-  // Call send-push (non-fatal on failure — still return 200)
-  try {
-    const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
-    const serviceRoleKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
-    const internalSecret = Deno.env.get('INTERNAL_FUNCTION_SECRET')!;
+  // Push to admins and parents (distinct copy) — non-fatal on failure.
+  const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
+  const serviceRoleKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
+  const internalSecret = Deno.env.get('INTERNAL_FUNCTION_SECRET')!;
 
-    const pushResp = await fetch(`${supabaseUrl}/functions/v1/send-push`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${serviceRoleKey}`,
-        'apikey': serviceRoleKey,
-        'X-Internal-Secret': internalSecret,
-      },
-      body: JSON.stringify({
-        userIds: adminIds,
-        title: 'SOS Alert',
-        body: `SOS alert from bus ${bus.plate_number} — Driver: ${profile.name}`,
-        data: { type: 'sos', busId: validated.busId },
-        // Emergency — alarm-like delivery.
-        channelId: 'arrival-alarm',
-      }),
-    });
-
-    if (!pushResp.ok) {
-      console.error(
-        `[sos-alert] send-push returned ${pushResp.status}: ${await pushResp.text()}`,
-      );
+  async function sendSosPush(userIds: string[], title: string, bodyText: string) {
+    if (userIds.length === 0) return;
+    try {
+      const pushResp = await fetch(`${supabaseUrl}/functions/v1/send-push`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${serviceRoleKey}`,
+          'apikey': serviceRoleKey,
+          'X-Internal-Secret': internalSecret,
+        },
+        body: JSON.stringify({
+          userIds,
+          title,
+          body: bodyText,
+          data: { type: 'sos', busId: validated.busId, lat: sosLat, lng: sosLng },
+          // Emergency — alarm-like delivery.
+          channelId: 'arrival-alarm',
+        }),
+      });
+      if (!pushResp.ok) {
+        console.error(
+          `[sos-alert] send-push returned ${pushResp.status}: ${await pushResp.text()}`,
+        );
+      }
+    } catch (err) {
+      console.error('[sos-alert] send-push call failed:', err);
     }
-  } catch (err) {
-    console.error('[sos-alert] send-push call failed:', err);
   }
+
+  await sendSosPush(
+    adminIds,
+    'SOS Alert',
+    `SOS alert from bus ${bus.plate_number} — Driver: ${profile.name}.${locationText}`,
+  );
+  await sendSosPush(
+    Array.from(parentIds),
+    '🚨 Bus emergency',
+    `Bus ${bus.plate_number} has reported an emergency on your child's route. The school has been alerted and is responding.${locationText}`,
+  );
 
   return jsonResponse({ data: { sent: true }, message: 'SOS alert sent' }, 200);
 });
