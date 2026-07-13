@@ -43,6 +43,11 @@ export default function SettingsPage() {
   const [accountSaveState, setAccountSaveState] = useState<'idle' | 'saving' | 'success' | 'error'>('idle');
   const [accountSaveError, setAccountSaveError] = useState<string | null>(null);
 
+  const [newPassword, setNewPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
+  const [passwordState, setPasswordState] = useState<'idle' | 'saving' | 'success' | 'error'>('idle');
+  const [passwordError, setPasswordError] = useState<string | null>(null);
+
   useEffect(() => {
     async function loadData() {
       setIsLoading(true);
@@ -108,6 +113,37 @@ export default function SettingsPage() {
       setProfile((prev) => prev ? { ...prev, name: displayName, phone: phone || null } : prev);
       setAccountSaveState('success');
     } catch { setAccountSaveError('An unexpected error occurred'); setAccountSaveState('error'); }
+  }
+
+  async function handlePasswordSave(e: FormEvent<HTMLFormElement>) {
+    e.preventDefault();
+    setPasswordError(null);
+    if (newPassword.length < 8) {
+      setPasswordError('Password must be at least 8 characters.');
+      setPasswordState('error');
+      return;
+    }
+    if (newPassword !== confirmPassword) {
+      setPasswordError('The two passwords do not match.');
+      setPasswordState('error');
+      return;
+    }
+    setPasswordState('saving');
+    try {
+      const supabase = createClient();
+      const { error } = await supabase.auth.updateUser({ password: newPassword });
+      if (error) {
+        setPasswordError(error.message);
+        setPasswordState('error');
+        return;
+      }
+      setNewPassword('');
+      setConfirmPassword('');
+      setPasswordState('success');
+    } catch {
+      setPasswordError('An unexpected error occurred');
+      setPasswordState('error');
+    }
   }
 
   async function handleSignOut() {
@@ -225,6 +261,54 @@ export default function SettingsPage() {
                 className="rounded-[var(--radius-btn)] bg-amber px-4 py-2.5 text-sm font-semibold text-navy hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-60 active:scale-95 transition-all duration-150"
               >
                 {accountSaveState === 'saving' ? 'Saving...' : 'Save Changes'}
+              </button>
+            </div>
+          </form>
+        </div>
+
+        {/* Change Password */}
+        <div className="bg-surface shadow-[var(--shadow-card)] rounded-[var(--radius-card)] p-6">
+          <h2 className="font-heading font-bold text-[18px] tracking-tight text-ink">Change Password</h2>
+          <p className="mt-1 text-sm text-sub">Set a new password for signing in.</p>
+          <form onSubmit={handlePasswordSave} className="mt-5 flex flex-col gap-4">
+            {passwordState === 'success' && (
+              <div className="rounded-[var(--radius-btn)] border border-green/20 bg-green-bg px-4 py-3 text-sm text-green">
+                Password updated successfully.
+              </div>
+            )}
+            {passwordState === 'error' && passwordError && (
+              <div className="rounded-[var(--radius-btn)] border border-red/30 bg-red-bg px-4 py-3 text-sm text-red">
+                {passwordError}
+              </div>
+            )}
+            <div>
+              <label className={labelClass}>New Password</label>
+              <input
+                type="password"
+                value={newPassword}
+                onChange={(e) => setNewPassword(e.target.value)}
+                autoComplete="new-password"
+                placeholder="At least 8 characters"
+                className={inputClass}
+              />
+            </div>
+            <div>
+              <label className={labelClass}>Confirm New Password</label>
+              <input
+                type="password"
+                value={confirmPassword}
+                onChange={(e) => setConfirmPassword(e.target.value)}
+                autoComplete="new-password"
+                className={inputClass}
+              />
+            </div>
+            <div className="flex justify-end">
+              <button
+                type="submit"
+                disabled={passwordState === 'saving'}
+                className="rounded-[var(--radius-btn)] bg-amber px-4 py-2.5 text-sm font-semibold text-navy hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-60 active:scale-95 transition-all duration-150"
+              >
+                {passwordState === 'saving' ? 'Updating...' : 'Update Password'}
               </button>
             </div>
           </form>

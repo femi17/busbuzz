@@ -97,16 +97,27 @@ Deno.serve(async (req: Request) => {
       403,
     );
   }
-  if (!profile.school_id) {
-    return jsonResponse({ error: 'No school associated with this account', statusCode: 403 }, 403);
-  }
-  const schoolId = profile.school_id as string;
 
-  let body: { startDate?: unknown; endDate?: unknown; label?: unknown };
+  let body: { startDate?: unknown; endDate?: unknown; label?: unknown; schoolId?: unknown };
   try {
     body = await req.json();
   } catch {
     return jsonResponse({ error: 'Invalid JSON body', statusCode: 400 }, 400);
+  }
+
+  // A school admin can only compute for their own school; a super admin has no
+  // school of their own and must name the target school in the request.
+  let schoolId: string;
+  if (profile.role === 'SUPER_ADMIN') {
+    if (typeof body.schoolId !== 'string' || body.schoolId.length === 0) {
+      return jsonResponse({ error: 'schoolId is required for super admins', statusCode: 400 }, 400);
+    }
+    schoolId = body.schoolId;
+  } else {
+    if (!profile.school_id) {
+      return jsonResponse({ error: 'No school associated with this account', statusCode: 403 }, 403);
+    }
+    schoolId = profile.school_id as string;
   }
 
   const startDate = typeof body.startDate === 'string' ? body.startDate : '';

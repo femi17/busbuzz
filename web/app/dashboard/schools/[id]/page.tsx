@@ -13,6 +13,7 @@ import {
 import { createClient } from '@/lib/supabase-server';
 import { fetchSchoolAnalytics } from '@/lib/super-admin-data';
 import { DashboardHeader } from '@/components/dashboard/DashboardHeader';
+import { ComputeAwardPanel } from '@/components/dashboard/ComputeAwardPanel';
 
 export const dynamic = 'force-dynamic';
 
@@ -182,9 +183,11 @@ export default async function SchoolAnalyticsPage({
           </>
         ) : (
           <p className="text-sm text-sub">
-            No on-time award computed yet for this school. It appears once a term’s pickups have been scored.
+            No on-time award computed yet for this school. Use the tool below to score a term.
           </p>
         )}
+
+        <ComputeAwardPanel schoolId={data.school.id} />
       </div>
 
       {/* 7-day trend */}

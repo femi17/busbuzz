@@ -9,8 +9,6 @@ import {
   Route as RouteIcon,
   ArrowUpDown,
   Play,
-  Trophy,
-  Send,
 } from 'lucide-react';
 import { createClient } from '@/lib/supabase';
 import { StatCard } from '@/components/dashboard/StatCard';
@@ -21,7 +19,6 @@ import type {
   AttendanceReportRow,
   ReportSummary,
   ApiResponse,
-  SemesterAward,
 } from '../../../../shared/types';
 
 function formatBoardTime(seconds: number | null): string {
@@ -51,6 +48,50 @@ function StatusBadge({ status }: { status: TripReportRow['status'] }) {
     <span className="inline-flex items-center bg-canvas text-sub rounded-[var(--radius-chip)] px-2.5 py-1 text-[11px] font-semibold">
       Completed
     </span>
+  );
+}
+
+function Paginator({
+  page,
+  pageCount,
+  total,
+  noun,
+  onPage,
+}: {
+  page: number;
+  pageCount: number;
+  total: number;
+  noun: string;
+  onPage: (updater: (prev: number) => number) => void;
+}) {
+  if (total === 0) return null;
+  return (
+    <div className="flex items-center justify-between border-t border-rule px-4 py-2.5">
+      <p className="text-[11px] text-sub">
+        {total} {total === 1 ? noun : `${noun}s`}
+      </p>
+      <div className="flex items-center gap-2">
+        <button
+          type="button"
+          onClick={() => onPage((p) => Math.max(1, p - 1))}
+          disabled={page <= 1}
+          className="rounded-[var(--radius-btn)] border border-rule px-2.5 py-1 text-[12px] font-medium text-ink disabled:cursor-not-allowed disabled:opacity-40 hover:bg-canvas transition-colors"
+        >
+          Prev
+        </button>
+        <span className="board-figure text-[11px] text-sub tabular-nums">
+          {page} / {pageCount}
+        </span>
+        <button
+          type="button"
+          onClick={() => onPage((p) => Math.min(pageCount, p + 1))}
+          disabled={page >= pageCount}
+          className="rounded-[var(--radius-btn)] border border-rule px-2.5 py-1 text-[12px] font-medium text-ink disabled:cursor-not-allowed disabled:opacity-40 hover:bg-canvas transition-colors"
+        >
+          Next
+        </button>
+      </div>
+    </div>
   );
 }
 
@@ -134,83 +175,16 @@ export default function ReportsPage() {
   const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('asc');
   const [replayTripId, setReplayTripId] = useState<string | null>(null);
 
-  // Most On-Time Student award
-  const [award, setAward] = useState<SemesterAward | null>(null);
-  const [awardLabel, setAwardLabel] = useState('');
-  const [isComputing, setIsComputing] = useState(false);
-  const [awardError, setAwardError] = useState<string | null>(null);
-  const [awardMessage, setAwardMessage] = useState<string | null>(null);
-
-  const loadLatestAward = useCallback(async () => {
-    const supabase = createClient();
-    const { data } = await supabase
-      .from('semester_awards')
-      .select('*')
-      .order('computed_at', { ascending: false })
-      .limit(1)
-      .maybeSingle();
-    if (data) {
-      setAward({
-        id: data.id,
-        schoolId: data.school_id,
-        label: data.label,
-        periodStart: data.period_start,
-        periodEnd: data.period_end,
-        winnerStudentId: data.winner_student_id,
-        winnerName: data.winner_name,
-        winnerAvgBoardSeconds: data.winner_avg_board_seconds,
-        winnerTimedBoardings: data.winner_timed_boardings,
-        leaderboard: data.leaderboard ?? [],
-        emailSent: data.email_sent,
-        emailTo: data.email_to,
-        computedAt: data.computed_at,
-      });
-    }
-  }, []);
-
-  async function handleComputeAward() {
-    setAwardError(null);
-    setAwardMessage(null);
-    if (!awardLabel.trim()) { setAwardError('Give the term a name, e.g. "First Term 2025/26".'); return; }
-    if (!appliedStartDate || !appliedEndDate) { setAwardError('Pick a date range above first.'); return; }
-    setIsComputing(true);
-    try {
-      const supabase = createClient();
-      const { data: sessionData } = await supabase.auth.getSession();
-      const accessToken = sessionData.session?.access_token;
-      const res = await fetch(
-        `${process.env.NEXT_PUBLIC_SUPABASE_URL}/functions/v1/compute-ontime-award`,
-        {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            Authorization: `Bearer ${accessToken}`,
-            apikey: process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-          },
-          body: JSON.stringify({
-            startDate: appliedStartDate,
-            endDate: appliedEndDate,
-            label: awardLabel.trim(),
-          }),
-        },
-      );
-      const body = await res.json().catch(() => null);
-      if (!res.ok) {
-        setAwardError(body?.error ?? 'Failed to compute award');
-        return;
-      }
-      setAward(body.data.award as SemesterAward);
-      setAwardMessage(body.message ?? 'Award computed');
-    } catch (err) {
-      setAwardError(err instanceof Error ? err.message : 'Failed to compute award');
-    } finally {
-      setIsComputing(false);
-    }
-  }
+  // Both tables show 5 rows per page; the rest are reachable via pagination.
+  const ROWS_PER_PAGE = 5;
+  const [tripPage, setTripPage] = useState(1);
+  const [attendancePage, setAttendancePage] = useState(1);
 
   const fetchReports = useCallback(async (rangeStart: string, rangeEnd: string) => {
     setIsLoading(true);
     setFetchError(null);
+    setTripPage(1);
+    setAttendancePage(1);
     try {
       const { summaryData, tripsData, attendanceData } = await loadReportsData(rangeStart, rangeEnd);
       setSummary(summaryData);
@@ -241,7 +215,6 @@ export default function ReportsPage() {
         if (ignore) return;
         setIsLoading(false);
       });
-    loadLatestAward();
     return () => { ignore = true; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -285,6 +258,19 @@ export default function ReportsPage() {
 
   const sortedAttendance = [...attendance].sort((a, b) =>
     sortDirection === 'asc' ? a.attendancePercentage - b.attendancePercentage : b.attendancePercentage - a.attendancePercentage,
+  );
+
+  const tripPageCount = Math.max(1, Math.ceil(trips.length / ROWS_PER_PAGE));
+  const attendancePageCount = Math.max(1, Math.ceil(sortedAttendance.length / ROWS_PER_PAGE));
+  const clampedTripPage = Math.min(tripPage, tripPageCount);
+  const clampedAttendancePage = Math.min(attendancePage, attendancePageCount);
+  const pagedTrips = trips.slice(
+    (clampedTripPage - 1) * ROWS_PER_PAGE,
+    clampedTripPage * ROWS_PER_PAGE,
+  );
+  const pagedAttendance = sortedAttendance.slice(
+    (clampedAttendancePage - 1) * ROWS_PER_PAGE,
+    clampedAttendancePage * ROWS_PER_PAGE,
   );
 
   return (
@@ -391,7 +377,7 @@ export default function ReportsPage() {
                   </tr>
                 </thead>
                 <tbody>
-                  {trips.map((trip, index) => (
+                  {pagedTrips.map((trip, index) => (
                     <motion.tr
                       key={trip.id}
                       initial={{ opacity: 0 }}
@@ -430,6 +416,13 @@ export default function ReportsPage() {
                   ))}
                 </tbody>
               </table>
+              <Paginator
+                page={clampedTripPage}
+                pageCount={tripPageCount}
+                total={trips.length}
+                noun="trip"
+                onPage={setTripPage}
+              />
             </div>
           )}
         </div>
@@ -465,7 +458,7 @@ export default function ReportsPage() {
                   </tr>
                 </thead>
                 <tbody>
-                  {sortedAttendance.map((student, index) => (
+                  {pagedAttendance.map((student, index) => (
                     <motion.tr
                       key={student.studentId}
                       initial={{ opacity: 0 }}
@@ -491,108 +484,13 @@ export default function ReportsPage() {
                   ))}
                 </tbody>
               </table>
-            </div>
-          )}
-        </div>
-      </div>
-
-      {/* Most On-Time Student — semester award */}
-      <div className="bg-surface shadow-[var(--shadow-card)] rounded-[var(--radius-card)] overflow-hidden">
-        <div aria-hidden className="h-1 hazard-stripe" />
-        <div className="flex flex-wrap items-center justify-between gap-3 border-b border-rule px-5 py-4">
-          <div className="flex items-center gap-2.5">
-            <div className="rounded-[10px] bg-night p-2 text-amber">
-              <Trophy size={18} strokeWidth={1.75} />
-            </div>
-            <div>
-              <h2 className="font-heading font-bold text-[16px] tracking-tight text-ink">Most On-Time Student</h2>
-              <p className="text-[12px] text-sub">Ranks readiness — time from the bus reaching a stop to boarding — over the selected date range.</p>
-            </div>
-          </div>
-        </div>
-
-        <div className="p-5">
-          {/* Compute controls */}
-          <div className="flex flex-wrap items-end gap-3">
-            <div className="min-w-[220px] flex-1">
-              <label className="mb-1 block text-xs font-semibold uppercase tracking-wide text-sub">Term name</label>
-              <input
-                type="text"
-                value={awardLabel}
-                onChange={(e) => setAwardLabel(e.target.value)}
-                placeholder="e.g. First Term 2025/26"
-                className="w-full rounded-[var(--radius-btn)] border border-rule px-3 py-2 text-sm text-ink placeholder:text-sub focus:border-amber focus:outline-none focus:ring-1 focus:ring-amber"
+              <Paginator
+                page={clampedAttendancePage}
+                pageCount={attendancePageCount}
+                total={sortedAttendance.length}
+                noun="student"
+                onPage={setAttendancePage}
               />
-            </div>
-            <button
-              type="button"
-              onClick={handleComputeAward}
-              disabled={isComputing}
-              className="inline-flex items-center gap-2 rounded-[var(--radius-btn)] bg-amber px-4 py-2 text-sm font-semibold text-navy hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-60 active:scale-95 transition-all duration-150"
-            >
-              <Send size={14} />
-              {isComputing ? 'Computing…' : 'Compute & send award'}
-            </button>
-          </div>
-          <p className="mt-2 text-[11px] text-sub">
-            Uses the date range above ({appliedStartDate} → {appliedEndDate}). Emails the result to the school inbox.
-          </p>
-          {awardError && <p className="mt-2 text-xs text-red">{awardError}</p>}
-          {awardMessage && <p className="mt-2 text-xs text-green">{awardMessage}</p>}
-
-          {/* Latest award */}
-          {award && (
-            <div className="mt-5 grid grid-cols-1 gap-4 lg:grid-cols-[minmax(0,320px)_1fr]">
-              {/* Winner hero */}
-              <div className="rounded-[16px] bg-night p-5 text-white">
-                <div className="flex items-center justify-between">
-                  <p className="font-mono text-[10px] font-semibold uppercase tracking-[0.16em] text-amber">🏆 {award.label}</p>
-                  {award.emailSent && (
-                    <span className="rounded-[var(--radius-chip)] bg-white/10 px-2 py-0.5 text-[10px] font-medium text-white/70">Emailed</span>
-                  )}
-                </div>
-                {award.winnerName ? (
-                  <>
-                    <p className="mt-3 font-heading text-[24px] font-bold leading-tight">{award.winnerName}</p>
-                    <p className="mt-1 text-[13px] text-white/55">
-                      Ready in{' '}
-                      <span className="board-figure font-semibold text-amber">{formatBoardTime(award.winnerAvgBoardSeconds)}</span>{' '}
-                      on average · {award.winnerTimedBoardings} timed pickups
-                    </p>
-                  </>
-                ) : (
-                  <p className="mt-3 text-[14px] text-white/70">No student had enough timed pickups to qualify for this period.</p>
-                )}
-                <p className="mt-4 font-mono text-[10px] uppercase tracking-[0.12em] text-white/35">
-                  {award.periodStart} → {award.periodEnd}
-                </p>
-              </div>
-
-              {/* Leaderboard */}
-              {award.leaderboard.length > 0 && (
-                <div className="overflow-x-auto rounded-[16px] border border-rule">
-                  <table className="w-full min-w-[480px] text-left text-sm">
-                    <thead>
-                      <tr className="bg-canvas border-b border-rule">
-                        {['#', 'Student', 'Class', 'Avg Board', 'Pickups'].map((h) => (
-                          <th key={h} className="whitespace-nowrap px-4 py-2 text-[10px] font-semibold text-sub uppercase tracking-widest">{h}</th>
-                        ))}
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {award.leaderboard.map((entry, i) => (
-                        <tr key={entry.studentId} className={`border-b border-rule last:border-0 ${i === 0 ? 'bg-amber-light/40' : 'bg-surface'}`}>
-                          <td className="board-figure px-4 py-2 text-[12px] font-semibold text-sub">{i + 1}</td>
-                          <td className="px-4 py-2 text-[13px] text-ink font-semibold">{entry.studentName}</td>
-                          <td className="px-4 py-2 text-[12px] text-sub">{entry.className}</td>
-                          <td className="board-figure px-4 py-2 text-[12px] text-ink font-semibold">{formatBoardTime(entry.avgBoardSeconds)}</td>
-                          <td className="board-figure px-4 py-2 text-[12px] text-sub">{entry.timedBoardings}</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              )}
             </div>
           )}
         </div>
