@@ -1,6 +1,6 @@
 import type { BottomTabNavigationProp } from '@react-navigation/bottom-tabs';
 import type { CompositeNavigationProp } from '@react-navigation/native';
-import { useNavigation } from '@react-navigation/native';
+import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import Constants from 'expo-constants';
 import { useCallback, useEffect, useState } from 'react';
@@ -10,6 +10,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { supabase } from '../../lib/supabase';
 import { CHILD_COLOR_PALETTE, getChildColors, setChildColor } from './childColors';
 import { BellIcon, SchoolIcon } from './components/Icons';
+import { ConfirmDialog } from './components/ConfirmDialog';
 import type { MainStackParamList, ParentTabParamList } from './ParentApp';
 import { getPushPermissionStatus, registerForPushNotifications } from './pushNotifications';
 import { useStudents } from './StudentContext';
@@ -79,9 +80,17 @@ export default function ProfileScreen() {
   }, []);
 
   useEffect(() => {
-    loadAccount();
     loadPushStatus();
-  }, [loadAccount, loadPushStatus]);
+  }, [loadPushStatus]);
+
+  // Re-read the unread count every time the screen regains focus, so it
+  // reflects notifications read or deleted on the Notifications screen instead
+  // of staying frozen at the mount-time value.
+  useFocusEffect(
+    useCallback(() => {
+      loadAccount();
+    }, [loadAccount]),
+  );
 
   async function handlePushRowPress() {
     if (pushEnabled) {
@@ -104,67 +113,68 @@ export default function ProfileScreen() {
     }
   }
 
-  function handleLogOut() {
-    Alert.alert('Log out', 'Are you sure you want to log out of BusBuzz?', [
-      { text: 'Cancel', style: 'cancel' },
-      {
-        text: 'Log out',
-        style: 'destructive',
-        onPress: () => supabase.auth.signOut(),
-      },
-    ]);
-  }
-
+  const [showLogoutConfirm, setShowLogoutConfirm] = useState(false);
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
 
-  function handleDeleteAccount() {
-    Alert.alert(
-      'Delete account',
-      'This permanently deletes your BusBuzz account and your access to your children’s bus tracking. This cannot be undone.',
-      [
-        { text: 'Cancel', style: 'cancel' },
+  async function performDelete() {
+    setShowDeleteConfirm(false);
+    setIsDeleting(true);
+    try {
+      const {
+        data: { session },
+      } = await supabase.auth.getSession();
+      if (!session?.access_token) {
+        Alert.alert('Error', 'Please log in again.');
+        return;
+      }
+      const res = await fetch(
+        `${process.env.EXPO_PUBLIC_SUPABASE_URL}/functions/v1/delete-account`,
         {
-          text: 'Delete',
-          style: 'destructive',
-          onPress: async () => {
-            setIsDeleting(true);
-            try {
-              const {
-                data: { session },
-              } = await supabase.auth.getSession();
-              if (!session?.access_token) {
-                Alert.alert('Error', 'Please log in again.');
-                return;
-              }
-              const res = await fetch(
-                `${process.env.EXPO_PUBLIC_SUPABASE_URL}/functions/v1/delete-account`,
-                {
-                  method: 'POST',
-                  headers: {
-                    'Content-Type': 'application/json',
-                    Authorization: `Bearer ${session.access_token}`,
-                    apikey: process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY!,
-                  },
-                },
-              );
-              if (!res.ok) {
-                Alert.alert('Error', 'Could not delete your account. Please try again.');
-                return;
-              }
-              await supabase.auth.signOut();
-            } catch {
-              Alert.alert('Could not delete your account. Please try again.');
-            } finally {
-              setIsDeleting(false);
-            }
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${session.access_token}`,
+            apikey: process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY!,
           },
         },
-      ],
-    );
+      );
+      if (!res.ok) {
+        Alert.alert('Error', 'Could not delete your account. Please try again.');
+        return;
+      }
+      await supabase.auth.signOut();
+    } catch {
+      Alert.alert('Could not delete your account. Please try again.');
+    } finally {
+      setIsDeleting(false);
+    }
   }
 
   return (
     <SafeAreaView style={styles.container} edges={['top']}>
+      <ConfirmDialog
+        visible={showLogoutConfirm}
+        title="Log out"
+        message="Are you sure you want to log out of BusBuzz?"
+        confirmLabel="Log out"
+        destructive
+        onCancel={() => setShowLogoutConfirm(false)}
+        onConfirm={() => {
+          setShowLogoutConfirm(false);
+          supabase.auth.signOut();
+        }}
+      />
+      <ConfirmDialog
+        visible={showDeleteConfirm}
+        title="Delete account"
+        message="This permanently deletes your BusBuzz account and your access to your children’s bus tracking. This cannot be undone."
+        confirmLabel="Delete"
+        destructive
+        onCancel={() => setShowDeleteConfirm(false)}
+        onConfirm={performDelete}
+      />
+
       <View style={styles.header}>
         <Text style={styles.headerEyebrow}>Account</Text>
         <Text style={styles.headerTitle}>{parentName ?? parentEmail ?? 'Parent'}</Text>
@@ -263,14 +273,14 @@ export default function ProfileScreen() {
         <View style={styles.section}>
           <Pressable
             style={({ pressed }) => [styles.logOutButton, pressed && styles.logOutButtonPressed]}
-            onPress={handleLogOut}
+            onPress={() => setShowLogoutConfirm(true)}
           >
             <Text style={styles.logOutText}>Log out</Text>
           </Pressable>
 
           <Pressable
             style={({ pressed }) => [styles.deleteRow, pressed && styles.actionRowPressed]}
-            onPress={handleDeleteAccount}
+            onPress={() => setShowDeleteConfirm(true)}
             disabled={isDeleting}
           >
             <Text style={styles.deleteText}>

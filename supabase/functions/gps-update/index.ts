@@ -11,7 +11,64 @@ const corsHeaders = {
 };
 
 const GEOFENCE_RADIUS_M = 300;
+// Bus is "arriving" (loud alarm) once this close to a stop.
+const ARRIVAL_RADIUS_M = 150;
+// "~5 minutes away" heads-up: fire when the bus is within 5 min by current
+// speed, or — when speed is unknown/zero — within this fallback distance.
+const APPROACH_ETA_SECONDS = 5 * 60;
+const APPROACH_FALLBACK_M = 1200;
 const EARTH_RADIUS_M = 6_371_000;
+
+async function pushToParents(
+  supabaseUrl: string,
+  serviceRoleKey: string,
+  parentIds: string[],
+  payload: { title: string; body: string; data: Record<string, unknown>; channelId: string },
+): Promise<void> {
+  if (parentIds.length === 0) return;
+  const internalSecret = Deno.env.get('INTERNAL_FUNCTION_SECRET');
+  if (!internalSecret) return;
+  try {
+    await fetch(`${supabaseUrl}/functions/v1/send-push`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${serviceRoleKey}`,
+        apikey: serviceRoleKey,
+        'X-Internal-Secret': internalSecret,
+      },
+      body: JSON.stringify({ userIds: parentIds, ...payload }),
+    });
+  } catch (err) {
+    console.error('[gps-update] send-push failed:', err);
+  }
+}
+
+// Parents of active students whose pickup stop is `stopId` on this route.
+async function parentsAtStop(
+  service: ReturnType<typeof createClient>,
+  routeId: string,
+  stopId: string,
+): Promise<string[]> {
+  const { data: rows } = await service
+    .from('students')
+    .select('student_parents(parent_id)')
+    .eq('stop_id', stopId)
+    .eq('route_id', routeId)
+    .eq('is_active', true);
+  const ids = new Set<string>();
+  for (const row of (rows ?? []) as Array<{
+    student_parents: Array<{ parent_id: string }> | { parent_id: string } | null;
+  }>) {
+    const sp = row.student_parents;
+    if (Array.isArray(sp)) {
+      for (const e of sp) if (e?.parent_id) ids.add(e.parent_id);
+    } else if (sp?.parent_id) {
+      ids.add(sp.parent_id);
+    }
+  }
+  return Array.from(ids);
+}
 
 function haversineMeters(lat1: number, lon1: number, lat2: number, lon2: number): number {
   const toRad = (d: number) => (d * Math.PI) / 180;
@@ -185,81 +242,87 @@ Deno.serve(async (req: Request) => {
     busId: validated.busId,
   });
 
-  // Geofence — folded in so this stays a single function invocation per ping
-  // (was a second HTTP hop to geofence-check on every ping). send-push is only
-  // called on an actual crossing, which is rare.
+  // Geofence — folded in so this stays a single function invocation per ping.
+  // Each stop fires up to two notifications to that stop's parents:
+  //   1. APPROACH — bus ~5 min away → heads-up on 'trip-updates'
+  //   2. ARRIVE   — bus at the stop  → loud 'arrival-alarm'
+  // When a stop's ARRIVE fires, the NEXT stop's parents get a "you're next" ping.
   const triggeredStopIds: string[] = [];
   try {
-    const { data: stops } = await service
+    const { data: stopsData } = await service
       .from('stops')
       .select('id, name, latitude, longitude, sequence')
       .eq('route_id', trip.route_id)
       .order('sequence');
+    const stops = (stopsData ?? []) as Array<{
+      id: string; name: string; latitude: number; longitude: number; sequence: number;
+    }>;
 
-    if (stops && stops.length > 0) {
-      const { data: triggeredRows } = await service
-        .from('trip_stop_triggers')
-        .select('stop_id')
-        .eq('trip_id', validated.tripId);
-      const triggered = new Set((triggeredRows ?? []).map((r: { stop_id: string }) => r.stop_id));
+    if (stops.length > 0) {
+      const [{ data: arriveRows }, { data: approachRows }] = await Promise.all([
+        service.from('trip_stop_triggers').select('stop_id').eq('trip_id', validated.tripId),
+        service.from('trip_stop_approaches').select('stop_id').eq('trip_id', validated.tripId),
+      ]);
+      const arrived = new Set((arriveRows ?? []).map((r: { stop_id: string }) => r.stop_id));
+      const approached = new Set((approachRows ?? []).map((r: { stop_id: string }) => r.stop_id));
 
-      for (const stop of stops as Array<{ id: string; name: string; latitude: number; longitude: number }>) {
-        if (triggered.has(stop.id)) continue;
+      for (let i = 0; i < stops.length; i++) {
+        const stop = stops[i];
         const dist = haversineMeters(validated.lat, validated.lng, stop.latitude, stop.longitude);
-        if (dist > GEOFENCE_RADIUS_M) continue;
+        // ETA at current speed (m/s); speed comes in m/s from expo-location.
+        const etaSeconds = validated.speed > 0.5 ? dist / validated.speed : Infinity;
 
-        const { error: upsertError } = await service
-          .from('trip_stop_triggers')
-          .upsert(
-            { trip_id: validated.tripId, stop_id: stop.id, triggered_at: new Date().toISOString() },
-            { onConflict: 'trip_id,stop_id' },
-          );
-        if (upsertError) continue;
-        triggeredStopIds.push(stop.id);
-
-        const { data: parentRows } = await service
-          .from('students')
-          .select('student_parents(parent_id)')
-          .eq('stop_id', stop.id)
-          .eq('route_id', trip.route_id)
-          .eq('is_active', true);
-
-        const parentIdSet = new Set<string>();
-        for (const row of (parentRows ?? []) as Array<{
-          student_parents: Array<{ parent_id: string }> | { parent_id: string } | null;
-        }>) {
-          const sp = row.student_parents;
-          if (Array.isArray(sp)) {
-            for (const e of sp) if (e?.parent_id) parentIdSet.add(e.parent_id);
-          } else if (sp?.parent_id) {
-            parentIdSet.add(sp.parent_id);
+        // ── Stage 1: approaching (~5 min away) ──
+        const isApproaching =
+          dist <= GEOFENCE_RADIUS_M ? false // already handled by arrival, skip approach
+          : etaSeconds <= APPROACH_ETA_SECONDS || dist <= APPROACH_FALLBACK_M;
+        if (!approached.has(stop.id) && !arrived.has(stop.id) && isApproaching) {
+          const { error } = await service
+            .from('trip_stop_approaches')
+            .upsert({ trip_id: validated.tripId, stop_id: stop.id }, { onConflict: 'trip_id,stop_id' });
+          if (!error) {
+            approached.add(stop.id);
+            const parents = await parentsAtStop(service, trip.route_id, stop.id);
+            await pushToParents(supabaseUrl, serviceRoleKey, parents, {
+              title: '🚌 Bus is about 5 minutes away',
+              body: `Your bus is approaching ${stop.name} — start getting ready.`,
+              data: { type: 'approach', tripId: validated.tripId, stopId: stop.id, stopName: stop.name },
+              channelId: 'trip-updates',
+            });
           }
         }
-        const parentIds = Array.from(parentIdSet);
 
-        if (parentIds.length > 0) {
-          const internalSecret = Deno.env.get('INTERNAL_FUNCTION_SECRET');
-          if (internalSecret) {
-            try {
-              await fetch(`${supabaseUrl}/functions/v1/send-push`, {
-                method: 'POST',
-                headers: {
-                  'Content-Type': 'application/json',
-                  Authorization: `Bearer ${serviceRoleKey}`,
-                  apikey: serviceRoleKey,
-                  'X-Internal-Secret': internalSecret,
-                },
-                body: JSON.stringify({
-                  userIds: parentIds,
-                  title: '🚌 Bus arriving!',
-                  body: `The bus is arriving at ${stop.name} — time to head out!`,
-                  data: { type: 'geofence', tripId: validated.tripId, stopId: stop.id, stopName: stop.name },
-                  // Alarm-like: long vibration, breaks through DND/Focus.
-                  channelId: 'arrival-alarm',
-                }),
+        // ── Stage 2: arriving (at the stop) ──
+        if (!arrived.has(stop.id) && dist <= ARRIVAL_RADIUS_M) {
+          const { error } = await service
+            .from('trip_stop_triggers')
+            .upsert(
+              { trip_id: validated.tripId, stop_id: stop.id, triggered_at: new Date().toISOString() },
+              { onConflict: 'trip_id,stop_id' },
+            );
+          if (!error) {
+            arrived.add(stop.id);
+            triggeredStopIds.push(stop.id);
+
+            const parents = await parentsAtStop(service, trip.route_id, stop.id);
+            await pushToParents(supabaseUrl, serviceRoleKey, parents, {
+              title: '🚌 Your bus has arrived!',
+              body: `The bus is at ${stop.name} — head out to meet it now.`,
+              data: { type: 'arrival', tripId: validated.tripId, stopId: stop.id, stopName: stop.name },
+              // Loud alarm: long vibration, breaks through DND/Focus.
+              channelId: 'arrival-alarm',
+            });
+
+            // "You're next" — parents at the following stop in sequence.
+            const nextStop = stops[i + 1];
+            if (nextStop) {
+              const nextParents = await parentsAtStop(service, trip.route_id, nextStop.id);
+              await pushToParents(supabaseUrl, serviceRoleKey, nextParents, {
+                title: '📍 Your stop is next',
+                body: `The bus just left ${stop.name} — ${nextStop.name} is the next stop.`,
+                data: { type: 'next-stop', tripId: validated.tripId, stopId: nextStop.id, stopName: nextStop.name },
+                channelId: 'trip-updates',
               });
-            } catch (err) {
-              console.error('[gps-update] send-push failed:', err);
             }
           }
         }

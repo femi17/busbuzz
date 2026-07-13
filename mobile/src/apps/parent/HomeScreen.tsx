@@ -39,6 +39,7 @@ import { getFirstName } from '../../../../shared/name';
 import { supabase } from '../../lib/supabase';
 import { getChildColors } from './childColors';
 import { BusIcon, CheckIcon, ChevronIcon, PhoneIcon, PinIcon, SchoolIcon } from './components/Icons';
+import { ConfirmDialog } from './components/ConfirmDialog';
 import { savePickupLocation } from './pickupLocation';
 import { useStatusBarBackdrop } from './StatusBarBackdropContext';
 import { useStudents, type LinkedStudent } from './StudentContext';
@@ -256,20 +257,15 @@ export default function HomeScreen() {
     [selectedStudent?.id],
   );
 
+  const [showAbsenceConfirm, setShowAbsenceConfirm] = useState(false);
+
   function handleAbsencePress() {
     if (!selectedStudent) return;
     if (absentToday) {
       submitAbsence('cancel');
       return;
     }
-    Alert.alert(
-      `${getFirstName(selectedStudent.name) || selectedStudent.name} isn't going today?`,
-      'The school and the driver will be told not to stop for them today. You can undo this any time before the trip.',
-      [
-        { text: 'Cancel', style: 'cancel' },
-        { text: 'Yes, not going', style: 'destructive', onPress: () => submitAbsence('report') },
-      ],
-    );
+    setShowAbsenceConfirm(true);
   }
 
   // The map journey: the bus's actual traveled path this trip, which stops
@@ -904,13 +900,18 @@ export default function HomeScreen() {
   }
 
   const reachedCount = routeStops.filter((s) => reachedStops[s.id]).length;
+  // The stop the bus is currently heading for = the first one it hasn't reached
+  // yet. Highlighted in the timeline so the journey reads as a progression.
+  const nextStopIndex = routeStops.findIndex((s) => !reachedStops[s.id]);
 
-  // ETA shown in the card's right column. Falls back to the stop's usual ride
-  // time before a trip starts, so the column is never empty.
+  // ETA shown in the card's right column. Prefer the live estimate; fall back
+  // to the stop's scheduled ride time (even during a trip, e.g. before the
+  // first GPS ping arrives) so the column is never blank.
   let etaText = '—';
   if (isArriving) etaText = 'Now';
   else if (trip && etaMinutes !== null) etaText = `${etaMinutes} min`;
-  else if (!trip && stop?.etaMinutes != null) etaText = `${stop.etaMinutes} min`;
+  else if (stop?.etaMinutes != null) etaText = `~${stop.etaMinutes} min`;
+  else if (trip) etaText = 'En route';
 
   // Live status sits under the ETA. Only while a trip is running — before that
   // there's deliberately no "not started" label.
@@ -925,6 +926,20 @@ export default function HomeScreen() {
   return (
     <View style={styles.container}>
       <StatusBar style="dark" />
+
+      <ConfirmDialog
+        visible={showAbsenceConfirm}
+        title={`${selectedStudent ? getFirstName(selectedStudent.name) || selectedStudent.name : 'Your child'} isn't going today?`}
+        message="The school and the driver will be told not to stop for them today. You can undo this any time before the trip."
+        confirmLabel="Yes, not going"
+        cancelLabel="Cancel"
+        destructive
+        onCancel={() => setShowAbsenceConfirm(false)}
+        onConfirm={() => {
+          setShowAbsenceConfirm(false);
+          submitAbsence('report');
+        }}
+      />
 
       {/* Full-bleed map — the peace-of-mind surface. The card floats over it. */}
       <View style={StyleSheet.absoluteFill}>
@@ -1284,7 +1299,26 @@ export default function HomeScreen() {
                       {routeStops.map((routeStop, index) => {
                         const reachedAt = reachedStops[routeStop.id];
                         const isMine = routeStop.id === selectedStudent?.stopId;
+                        const isNext = index === nextStopIndex;
                         const isLast = index === routeStops.length - 1;
+
+                        // Right-hand label: arrival time once reached, a live
+                        // "Next · ETA" for the stop the bus is heading to, then
+                        // "Your stop" / "Upcoming" for the rest.
+                        let timeLabel: string;
+                        if (reachedAt) {
+                          timeLabel = new Date(reachedAt).toLocaleTimeString([], {
+                            hour: '2-digit',
+                            minute: '2-digit',
+                          });
+                        } else if (isNext) {
+                          timeLabel = isMine ? `Next · ${etaText}` : 'Next stop';
+                        } else if (isMine) {
+                          timeLabel = 'Your stop';
+                        } else {
+                          timeLabel = 'Upcoming';
+                        }
+
                         return (
                           <View key={routeStop.id} style={styles.tlRow}>
                             <View style={styles.tlRail}>
@@ -1292,6 +1326,7 @@ export default function HomeScreen() {
                                 style={[
                                   styles.tlNode,
                                   isMine ? styles.tlNodeMine : null,
+                                  !reachedAt && isNext ? styles.tlNodeNext : null,
                                   reachedAt ? styles.tlNodeReached : null,
                                 ]}
                               >
@@ -1315,15 +1350,14 @@ export default function HomeScreen() {
                                 {routeStop.name}
                                 {isMine ? '  ·  Your stop' : ''}
                               </Text>
-                              <Text style={[styles.tlTime, reachedAt && styles.tlTimeReached]}>
-                                {reachedAt
-                                  ? new Date(reachedAt).toLocaleTimeString([], {
-                                      hour: '2-digit',
-                                      minute: '2-digit',
-                                    })
-                                  : isMine
-                                  ? 'Destination'
-                                  : 'Upcoming'}
+                              <Text
+                                style={[
+                                  styles.tlTime,
+                                  reachedAt && styles.tlTimeReached,
+                                  !reachedAt && isNext && styles.tlTimeNext,
+                                ]}
+                              >
+                                {timeLabel}
                               </Text>
                             </View>
                           </View>
@@ -1754,6 +1788,10 @@ const styles = StyleSheet.create({
     backgroundColor: color.stopRed,
     borderColor: color.stopRed,
   },
+  tlNodeNext: {
+    borderColor: color.danfo500,
+    backgroundColor: '#FFF3C4',
+  },
   tlConnector: {
     flex: 1,
     width: 2,
@@ -1789,6 +1827,10 @@ const styles = StyleSheet.create({
   },
   tlTimeReached: {
     color: color.ledger700,
+  },
+  tlTimeNext: {
+    color: color.danfo600,
+    fontWeight: '700',
   },
   // Arrived state (rendered inside the same card)
   arrivalHead: {
