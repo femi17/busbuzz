@@ -31,7 +31,7 @@ function useGoogleMaps(): boolean {
 // afternoon runs.
 type TripType = 'MORNING' | 'AFTERNOON' | 'BOTH';
 type RouteOption = { id: string; name: string };
-type RouteStop = { id: string; latitude: number; longitude: number };
+type RouteStop = { id: string; name: string; latitude: number; longitude: number; sequence: number };
 
 type MapStudent = {
   id: string;          // actual UUID for existing, `draft-${ts}` for new
@@ -48,6 +48,9 @@ type MapStudent = {
 };
 
 const LAGOS_CENTER = { lat: 6.5244, lng: 3.3792 };
+// A student within this distance of an existing stop shares it (same street);
+// farther out, their street becomes a new stop on the route.
+const STOP_SNAP_RADIUS_M = 250;
 const PIN_COLOR = '#F59E0B';
 const NEEDS_ATTENTION_COLOR = '#EF4444';
 // Classic teardrop pin: point at origin (0,0), circle head centred at (0,-30)
@@ -188,14 +191,16 @@ export default function StudentMapPage() {
         // stop and a student with no stop_id can't be placed at a single one.
         const { data: stopData } = await supabase
           .from('stops')
-          .select('id, latitude, longitude')
+          .select('id, name, latitude, longitude, sequence')
           .eq('route_id', selectedRouteId);
         if (!cancelled) {
           setRouteStops(
             (stopData ?? []).map((s) => ({
               id: s.id,
+              name: s.name,
               latitude: s.latitude,
               longitude: s.longitude,
+              sequence: s.sequence,
             })),
           );
         }
@@ -551,26 +556,59 @@ export default function StudentMapPage() {
     if (selectedId === id) setSelectedId(null);
   }
 
-  // Nearest route stop to a pin. The driver app groups students by stop_id and
-  // walks the route stop by stop, so a mapped student needs one — without it
-  // they show up at every stop (or none), which blocks the driver from ending
-  // the trip. routeStops only holds the SELECTED route's stops, so this is
-  // only valid for students on that route (CSV import can add students to
-  // other routes by name — those keep whatever stop they already had).
-  function nearestStopId(student: MapStudent): string | null {
-    if (student.routeId !== selectedRouteId || routeStops.length === 0) {
-      return null;
-    }
-    let best = routeStops[0];
-    let bestDist = haversineDistance(student.lat, student.lng, best.latitude, best.longitude);
-    for (const stop of routeStops.slice(1)) {
+  // "The student's street" as a stop name: first comma segment of the
+  // address, house number stripped ("54 Alabi St, Bucknor, Lagos" → "Alabi St").
+  function streetFromAddress(address: string, fallback: string): string {
+    const first = (address || '').split(',')[0].trim();
+    const street = first.replace(/^\d+[a-zA-Z]?\s+/, '').trim();
+    return street || fallback;
+  }
+
+  // The driver app groups students by stop_id and walks the route stop by
+  // stop, so every mapped student needs one. Students within STOP_SNAP_RADIUS_M
+  // of an existing stop share it (same street); beyond that, the student's own
+  // street becomes a NEW stop on the route — snapping someone to a stop a
+  // kilometre away would send the bus to the wrong place and the route's stops
+  // would stay frozen at whatever streets existed when it was authored.
+  // workingStops accumulates created stops within one save, so several new
+  // students on the same new street share a single stop. routeStops only holds
+  // the SELECTED route's stops, so cross-route students (CSV by route name)
+  // keep whatever stop they already had.
+  async function resolveStopId(
+    supabase: ReturnType<typeof createClient>,
+    student: MapStudent,
+    workingStops: RouteStop[],
+  ): Promise<string | null> {
+    if (student.routeId !== selectedRouteId) return null;
+
+    let best: RouteStop | null = null;
+    let bestDist = Infinity;
+    for (const stop of workingStops) {
       const d = haversineDistance(student.lat, student.lng, stop.latitude, stop.longitude);
       if (d < bestDist) {
         best = stop;
         bestDist = d;
       }
     }
-    return best.id;
+    if (best && bestDist <= STOP_SNAP_RADIUS_M) return best.id;
+
+    const name = streetFromAddress(student.address, `${student.name}'s pickup`);
+    const sequence = workingStops.reduce((m, s) => Math.max(m, s.sequence), 0) + 1;
+    const { data: created, error } = await supabase
+      .from('stops')
+      .insert({
+        route_id: student.routeId,
+        name,
+        latitude: student.lat,
+        longitude: student.lng,
+        sequence,
+      })
+      .select('id, name, latitude, longitude, sequence')
+      .single();
+    if (error || !created) return best?.id ?? null;
+
+    workingStops.push(created as RouteStop);
+    return created.id;
   }
 
   /* ── save all dirty students (new drafts, and any existing pin that's been dragged) ── */
@@ -587,6 +625,8 @@ export default function StudentMapPage() {
         .from('profiles').select('school_id').eq('id', user.id).single();
       if (!profile?.school_id) { setSaveError('Could not find school'); return; }
 
+      const workingStops = [...routeStops];
+
       // Students with a real UUID id → update existing record
       // Students with a draft- id → insert as new record
       const toUpdate = unsaved.filter(s => !s.id.startsWith('draft-'));
@@ -601,7 +641,7 @@ export default function StudentMapPage() {
             pickup_lat: s.lat,
             pickup_lng: s.lng,
             route_id: s.routeId || null,
-            stop_id: nearestStopId(s),
+            stop_id: await resolveStopId(supabase, s, workingStops),
             class_name: s.className || 'TBD',
             trip_type: s.tripType,
           })
@@ -610,21 +650,25 @@ export default function StudentMapPage() {
       }
 
       if (toInsert.length > 0) {
-        const rows = toInsert.map(s => ({
-          school_id: profile.school_id,
-          name: s.name,
-          class_name: s.className || 'TBD',
-          pickup_address: s.address,
-          pickup_lat: s.lat,
-          pickup_lng: s.lng,
-          route_id: s.routeId || null,
-          stop_id: nearestStopId(s),
-          trip_type: s.tripType,
-        }));
+        const rows = [];
+        for (const s of toInsert) {
+          rows.push({
+            school_id: profile.school_id,
+            name: s.name,
+            class_name: s.className || 'TBD',
+            pickup_address: s.address,
+            pickup_lat: s.lat,
+            pickup_lng: s.lng,
+            route_id: s.routeId || null,
+            stop_id: await resolveStopId(supabase, s, workingStops),
+            trip_type: s.tripType,
+          });
+        }
         const { error } = await supabase.from('students').insert(rows);
         if (error) { setSaveError(error.message); return; }
       }
 
+      setRouteStops(workingStops);
       setStudents(prev => prev.map(s =>
         !s.saved ? { ...s, saved: true, needsAttention: false } : s,
       ));

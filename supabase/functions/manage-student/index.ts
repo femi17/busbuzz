@@ -82,6 +82,89 @@ function jsonResponse(body: unknown, status: number) {
   });
 }
 
+// ----- Stop assignment (snap or create) -----
+// The driver app walks the route stop by stop and groups students by stop_id,
+// so every student with coordinates needs one. A student within
+// STOP_SNAP_RADIUS_M of an existing stop shares it (same street); farther out,
+// the student's own street becomes a NEW stop on the route — snapping to a
+// far-away stop would send the bus to the wrong place.
+const STOP_SNAP_RADIUS_M = 250;
+
+type StopRow = {
+  id: string;
+  name: string;
+  latitude: number;
+  longitude: number;
+  sequence: number;
+};
+
+function haversineMeters(lat1: number, lng1: number, lat2: number, lng2: number): number {
+  const rad = (d: number) => (d * Math.PI) / 180;
+  const dLat = rad(lat2 - lat1);
+  const dLng = rad(lng2 - lng1);
+  const a =
+    Math.sin(dLat / 2) ** 2 +
+    Math.cos(rad(lat1)) * Math.cos(rad(lat2)) * Math.sin(dLng / 2) ** 2;
+  return 6371000 * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+}
+
+// "The student's street": first comma segment of the address, house number
+// stripped ("54 Alabi St, Bucknor, Lagos" → "Alabi St").
+function streetFromAddress(address: string | null | undefined, fallback: string): string {
+  const first = (address ?? '').split(',')[0].trim();
+  const street = first.replace(/^\d+[a-zA-Z]?\s+/, '').trim();
+  return street || fallback;
+}
+
+// Snap to the nearest stop in workingStops or create a new one on the route.
+// workingStops is mutated so repeated calls within one request share newly
+// created stops (several imported students on the same new street → one stop).
+async function resolveStopId(
+  supabase: SupabaseClient,
+  routeId: string,
+  lat: number,
+  lng: number,
+  address: string | null | undefined,
+  fallbackName: string,
+  workingStops: StopRow[],
+): Promise<string | null> {
+  let best: StopRow | null = null;
+  let bestDist = Infinity;
+  for (const stop of workingStops) {
+    const d = haversineMeters(lat, lng, stop.latitude, stop.longitude);
+    if (d < bestDist) {
+      best = stop;
+      bestDist = d;
+    }
+  }
+  if (best && bestDist <= STOP_SNAP_RADIUS_M) return best.id;
+
+  const name = streetFromAddress(address, fallbackName);
+  const sequence = workingStops.reduce((m, s) => Math.max(m, s.sequence), 0) + 1;
+  const { data: created, error } = await supabase
+    .from('stops')
+    .insert({ route_id: routeId, name, latitude: lat, longitude: lng, sequence })
+    .select('id, name, latitude, longitude, sequence')
+    .single();
+  if (error || !created) {
+    console.warn('[manage-student] failed to create stop:', error?.message);
+    return best?.id ?? null;
+  }
+  workingStops.push(created as StopRow);
+  return created.id;
+}
+
+async function loadRouteStops(
+  supabase: SupabaseClient,
+  routeId: string,
+): Promise<StopRow[]> {
+  const { data } = await supabase
+    .from('stops')
+    .select('id, name, latitude, longitude, sequence')
+    .eq('route_id', routeId);
+  return (data ?? []) as StopRow[];
+}
+
 async function authenticate(
   req: Request,
 ): Promise<
@@ -231,6 +314,22 @@ async function handleCreate(
     }
   }
 
+  // No explicit stop from the client: snap to the nearest stop on the route,
+  // or create one for the student's street.
+  let stopId: string | null = validated.stopId ?? null;
+  if (!stopId && validated.routeId && pickupLat !== null && pickupLng !== null) {
+    const workingStops = await loadRouteStops(supabase, validated.routeId);
+    stopId = await resolveStopId(
+      supabase,
+      validated.routeId,
+      pickupLat,
+      pickupLng,
+      validated.pickupAddress,
+      `${validated.name}'s pickup`,
+      workingStops,
+    );
+  }
+
   const { data: inserted, error: insertError } = await supabase
     .from('students')
     .insert({
@@ -238,7 +337,7 @@ async function handleCreate(
       name: validated.name,
       class_name: validated.className,
       route_id: validated.routeId ?? null,
-      stop_id: validated.stopId ?? null,
+      stop_id: stopId,
       medical_notes: validated.medicalNotes ?? null,
       pickup_address: validated.pickupAddress ?? null,
       pickup_lat: pickupLat,
@@ -462,6 +561,7 @@ async function handleBulkImport(
     pickup_lat: number | null;
     pickup_lng: number | null;
     route_id: string;
+    stop_id: string | null;
   }> = [];
   const unmatchedSet = new Set<string>();
   let skipped = 0;
@@ -477,6 +577,7 @@ async function handleBulkImport(
         pickup_lat: null,
         pickup_lng: null,
         route_id: routeId,
+        stop_id: null,
       });
     } else {
       unmatchedSet.add(student.routeName);
@@ -504,6 +605,29 @@ async function handleBulkImport(
         }),
       );
     }
+  }
+
+  // Assign each geocoded student a stop: shared if one exists on their street
+  // (within STOP_SNAP_RADIUS_M), otherwise their street becomes a new stop.
+  // Sequential per route so students on the same new street share the stop
+  // created for the first of them.
+  const stopsByRoute = new Map<string, StopRow[]>();
+  for (const row of toInsert) {
+    if (row.pickup_lat === null || row.pickup_lng === null) continue;
+    let workingStops = stopsByRoute.get(row.route_id);
+    if (!workingStops) {
+      workingStops = await loadRouteStops(supabase, row.route_id);
+      stopsByRoute.set(row.route_id, workingStops);
+    }
+    row.stop_id = await resolveStopId(
+      supabase,
+      row.route_id,
+      row.pickup_lat,
+      row.pickup_lng,
+      row.pickup_address,
+      `${row.name}'s pickup`,
+      workingStops,
+    );
   }
 
   if (toInsert.length > 0) {
