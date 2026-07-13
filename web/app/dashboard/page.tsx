@@ -2,7 +2,9 @@ import Link from 'next/link';
 import { createClient } from '@/lib/supabase-server';
 import { getFirstName } from '../../../shared/name';
 import { fetchDashboardData } from '@/lib/dashboard-data';
+import { fetchSchoolsOverview } from '@/lib/super-admin-data';
 import { LiveDashboardGrid } from '@/components/dashboard/LiveDashboardGrid';
+import { SuperAdminHome } from '@/components/dashboard/SuperAdminHome';
 import { DashboardHeader } from '@/components/dashboard/DashboardHeader';
 
 // Live dashboard: never serve cached counts. Without this Next's Data Cache can
@@ -30,23 +32,21 @@ function formatDate(): string {
 export default async function DashboardHomePage() {
   const supabase = await createClient();
 
-  // First paint is server-rendered; LiveDashboardGrid keeps it fresh by polling.
-  const [initialData, { data: userData }] = await Promise.all([
-    fetchDashboardData(supabase),
-    supabase.auth.getUser(),
-  ]);
+  const { data: userData } = await supabase.auth.getUser();
 
   let adminName = 'Admin';
+  let role = 'SCHOOL_ADMIN';
   let schoolAddress: string | null = null;
   let schoolLat: number | null = null;
   let schoolLng: number | null = null;
   if (userData?.user) {
     const { data: profile } = await supabase
       .from('profiles')
-      .select('name, school:schools(address, latitude, longitude)')
+      .select('name, role, school:schools(address, latitude, longitude)')
       .eq('id', userData.user.id)
       .single();
     if (profile?.name) adminName = getFirstName(profile.name) || adminName;
+    if (profile?.role) role = profile.role;
 
     const schoolField = profile?.school as unknown;
     const school = Array.isArray(schoolField)
@@ -61,6 +61,24 @@ export default async function DashboardHomePage() {
 
   const greeting = getGreeting();
   const dateLabel = formatDate();
+
+  // Super admin has no school of their own — their home is the platform-wide
+  // schools overview, not the single-school live grid.
+  if (role === 'SUPER_ADMIN') {
+    const schools = await fetchSchoolsOverview(supabase);
+    return (
+      <div className="max-w-[1200px] mx-auto">
+        <DashboardHeader
+          eyebrow={dateLabel}
+          title={`${greeting}, ${adminName}`}
+          subtitle="Platform overview across all schools"
+        />
+        <SuperAdminHome schools={schools} />
+      </div>
+    );
+  }
+
+  const initialData = await fetchDashboardData(supabase);
 
   return (
     <div className="max-w-[1200px] mx-auto">
