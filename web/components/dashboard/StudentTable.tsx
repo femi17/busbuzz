@@ -34,12 +34,12 @@ export function StudentTable({ students }: { students: StudentRow[] }) {
 
   return (
     <div className="flex flex-col gap-3">
-      <div className="bg-surface shadow-[var(--shadow-card)] rounded-[var(--radius-card)] overflow-x-auto">
+      <div className="bg-surface shadow-[var(--shadow-card)] rounded-[var(--radius-card)] overflow-auto max-h-[65vh]">
         <table className="w-full min-w-[640px] text-left text-sm">
-          <thead>
+          <thead className="sticky top-0 z-10">
             <tr className="bg-canvas border-b border-rule">
               {['', 'Name', 'Class', 'Route', 'Parents', 'Status', 'Actions'].map((h) => (
-                <th key={h} className="px-5 py-3 text-[11px] font-semibold text-sub uppercase tracking-widest whitespace-nowrap">{h}</th>
+                <th key={h} className="bg-canvas px-5 py-3 text-[11px] font-semibold text-sub uppercase tracking-widest whitespace-nowrap">{h}</th>
               ))}
             </tr>
           </thead>

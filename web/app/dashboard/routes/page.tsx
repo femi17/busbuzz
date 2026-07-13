@@ -1,8 +1,8 @@
 import Link from 'next/link';
 import { Route as RouteIcon } from 'lucide-react';
 import { createClient } from '@/lib/supabase-server';
-import { DeleteRouteButton } from '@/components/dashboard/DeleteRouteButton';
 import { DashboardHeader } from '@/components/dashboard/DashboardHeader';
+import { RoutesTable } from '@/components/dashboard/RoutesTable';
 
 type RouteRow = {
   id: string;
@@ -56,13 +56,6 @@ export default async function RoutesPage({
         }
       />
 
-      {/* Count row */}
-      <div className="mb-4">
-        <p className="text-sm font-medium text-sub">
-          {routeRows.length} {routeRows.length === 1 ? 'route' : 'routes'}
-        </p>
-      </div>
-
       {routeRows.length === 0 ? (
         <div className="bg-surface shadow-[var(--shadow-card)] rounded-[var(--radius-card)] overflow-hidden">
           <div className="flex flex-col items-center justify-center py-16">
@@ -78,37 +71,14 @@ export default async function RoutesPage({
           </div>
         </div>
       ) : (
-        <div className="bg-surface shadow-[var(--shadow-card)] rounded-[var(--radius-card)] overflow-x-auto">
-          <table className="w-full min-w-[520px] text-left text-sm">
-            <thead>
-              <tr className="bg-canvas border-b border-rule">
-                {['Route Name', 'Bus', 'Students', 'Actions'].map((h) => (
-                  <th key={h} className="px-5 py-3 text-[11px] font-semibold text-sub uppercase tracking-widest">
-                    {h}
-                  </th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              {routeRows.map((route) => {
-                const bus = getBus(route.bus);
-                const studentCount = getStudentCount(route.students);
-                return (
-                  <tr key={route.id} className="border-b border-rule last:border-0 bg-surface hover:bg-canvas/60 transition-colors duration-100">
-                    <td className="px-5 py-3 text-[14px] font-medium text-ink">{route.name}</td>
-                    <td className="px-5 py-3 text-[13px] text-sub">
-                      {bus ? bus.plate_number : <span className="italic text-sub/60">No bus</span>}
-                    </td>
-                    <td className="px-5 py-3 text-[13px] text-sub">{studentCount}</td>
-                    <td className="px-5 py-3">
-                      <DeleteRouteButton routeId={route.id} studentCount={studentCount} />
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        </div>
+        <RoutesTable
+          routes={routeRows.map((route) => ({
+            id: route.id,
+            name: route.name,
+            busPlate: getBus(route.bus)?.plate_number ?? null,
+            studentCount: getStudentCount(route.students),
+          }))}
+        />
       )}
     </div>
   );

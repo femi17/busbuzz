@@ -1,8 +1,8 @@
 'use client';
 
-import { Fragment, useState, type FormEvent } from 'react';
+import { Fragment, useMemo, useState, type FormEvent } from 'react';
 import { useRouter } from 'next/navigation';
-import { KeyRound, Bus, GraduationCap, ChevronDown } from 'lucide-react';
+import { KeyRound, Bus, GraduationCap, ChevronDown, Search } from 'lucide-react';
 import { createClient } from '@/lib/supabase';
 import { RevokeParentButton } from './RevokeParentButton';
 
@@ -213,12 +213,35 @@ export function UsersContent({ parents, drivers, buses }: UsersContentProps) {
   const [showAddDriverModal, setShowAddDriverModal] = useState(false);
   const [setPinTarget, setSetPinTarget] = useState<{ id: string; name: string } | null>(null);
   const [reassignTarget, setReassignTarget] = useState<{ id: string; name: string } | null>(null);
+  const [parentQuery, setParentQuery] = useState('');
+  const [driverQuery, setDriverQuery] = useState('');
 
   function getAssignedBus(driverId: string): BusOption | null {
     return buses.find((bus) => bus.driver_id === driverId) ?? null;
   }
 
-  const tableHeaderClass = 'px-5 py-3 text-[11px] font-semibold text-sub uppercase tracking-widest';
+  const filteredParents = useMemo(() => {
+    const q = parentQuery.trim().toLowerCase();
+    if (!q) return parents;
+    return parents.filter((p) =>
+      `${p.name} ${p.email ?? ''} ${p.phone ?? ''}`.toLowerCase().includes(q),
+    );
+  }, [parents, parentQuery]);
+
+  const filteredDrivers = useMemo(() => {
+    const q = driverQuery.trim().toLowerCase();
+    if (!q) return drivers;
+    return drivers.filter((d) =>
+      `${d.name} ${d.phone ?? ''} ${getAssignedBus(d.id)?.plate_number ?? ''}`
+        .toLowerCase()
+        .includes(q),
+    );
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [drivers, driverQuery, buses]);
+
+  const tableHeaderClass = 'bg-canvas px-5 py-3 text-[11px] font-semibold text-sub uppercase tracking-widest';
+  const searchInputClass =
+    'w-full max-w-sm rounded-[var(--radius-btn)] border border-rule bg-surface pl-9 pr-3 py-2.5 text-sm text-ink placeholder:text-sub focus:border-amber focus:outline-none focus:ring-1 focus:ring-amber';
 
   return (
     <div className="flex flex-col gap-4">
@@ -243,17 +266,35 @@ export function UsersContent({ parents, drivers, buses }: UsersContentProps) {
       {/* Parents Tab */}
       {activeTab === 'parents' && (
         <div className="flex flex-col gap-4">
-          <p className="text-sm font-medium text-sub">{parents.length} {parents.length === 1 ? 'parent' : 'parents'}</p>
+          <div className="flex items-center justify-between gap-3">
+            <div className="relative w-full max-w-sm">
+              <Search size={15} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-sub" />
+              <input
+                type="text"
+                value={parentQuery}
+                onChange={(e) => setParentQuery(e.target.value)}
+                placeholder="Search parents by name, email, or phone…"
+                className={searchInputClass}
+              />
+            </div>
+            <p className="shrink-0 text-sm font-medium text-sub">
+              {filteredParents.length} {filteredParents.length === 1 ? 'parent' : 'parents'}
+            </p>
+          </div>
 
           <div className="bg-surface shadow-[var(--shadow-card)] rounded-[var(--radius-card)] overflow-hidden">
             {parents.length === 0 ? (
               <div className="flex flex-col items-center gap-3 px-5 py-16 text-center">
                 <p className="text-sm text-sub">No parents have been invited yet. Go to Students to invite parents for each student.</p>
               </div>
+            ) : filteredParents.length === 0 ? (
+              <div className="flex flex-col items-center gap-3 px-5 py-16 text-center">
+                <p className="text-sm text-sub">No parents match “{parentQuery}”.</p>
+              </div>
             ) : (
-              <div className="overflow-x-auto">
+              <div className="overflow-auto max-h-[60vh]">
               <table className="w-full min-w-[640px] text-left text-sm">
-                <thead>
+                <thead className="sticky top-0 z-10">
                   <tr className="bg-canvas border-b border-rule">
                     {['Name', 'Email', 'Phone', 'Children', 'Status', 'Actions'].map((h) => (
                       <th key={h} className={tableHeaderClass}>{h}</th>
@@ -261,7 +302,7 @@ export function UsersContent({ parents, drivers, buses }: UsersContentProps) {
                   </tr>
                 </thead>
                 <tbody>
-                  {parents.map((parent) => {
+                  {filteredParents.map((parent) => {
                     const studentNames = getStudentNames(parent);
                     const isExpanded = expandedParentId === parent.id;
                     return (
@@ -317,11 +358,23 @@ export function UsersContent({ parents, drivers, buses }: UsersContentProps) {
       {/* Drivers Tab */}
       {activeTab === 'drivers' && (
         <div className="flex flex-col gap-4">
-          <div className="flex items-center justify-between">
-            <p className="text-sm font-medium text-sub">{drivers.length} {drivers.length === 1 ? 'driver' : 'drivers'}</p>
-            <button type="button" onClick={() => setShowAddDriverModal(true)} className="rounded-[var(--radius-btn)] bg-amber px-4 py-2.5 text-sm font-semibold text-navy hover:brightness-110 active:scale-95 transition-all duration-150">
-              + Add Driver
-            </button>
+          <div className="flex items-center justify-between gap-3">
+            <div className="relative w-full max-w-sm">
+              <Search size={15} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-sub" />
+              <input
+                type="text"
+                value={driverQuery}
+                onChange={(e) => setDriverQuery(e.target.value)}
+                placeholder="Search drivers by name, phone, or bus…"
+                className={searchInputClass}
+              />
+            </div>
+            <div className="flex shrink-0 items-center gap-3">
+              <p className="text-sm font-medium text-sub">{filteredDrivers.length} {filteredDrivers.length === 1 ? 'driver' : 'drivers'}</p>
+              <button type="button" onClick={() => setShowAddDriverModal(true)} className="rounded-[var(--radius-btn)] bg-amber px-4 py-2.5 text-sm font-semibold text-navy hover:brightness-110 active:scale-95 transition-all duration-150">
+                + Add Driver
+              </button>
+            </div>
           </div>
 
           <div className="bg-surface shadow-[var(--shadow-card)] rounded-[var(--radius-card)] overflow-hidden">
@@ -332,10 +385,14 @@ export function UsersContent({ parents, drivers, buses }: UsersContentProps) {
                   + Add Driver
                 </button>
               </div>
+            ) : filteredDrivers.length === 0 ? (
+              <div className="flex flex-col items-center gap-3 px-5 py-16 text-center">
+                <p className="text-sm text-sub">No drivers match “{driverQuery}”.</p>
+              </div>
             ) : (
-              <div className="overflow-x-auto">
+              <div className="overflow-auto max-h-[60vh]">
               <table className="w-full min-w-[560px] text-left text-sm">
-                <thead>
+                <thead className="sticky top-0 z-10">
                   <tr className="bg-canvas border-b border-rule">
                     {['Name', 'Phone', 'Assigned Bus', 'PIN Status', 'Actions'].map((h) => (
                       <th key={h} className={tableHeaderClass}>{h}</th>
@@ -343,7 +400,7 @@ export function UsersContent({ parents, drivers, buses }: UsersContentProps) {
                   </tr>
                 </thead>
                 <tbody>
-                  {drivers.map((driver) => {
+                  {filteredDrivers.map((driver) => {
                     const assignedBus = getAssignedBus(driver.id);
                     return (
                       <tr key={driver.id} className="group border-b border-rule last:border-0 bg-surface hover:bg-canvas/60 transition-colors duration-100">

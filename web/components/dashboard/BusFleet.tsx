@@ -1,8 +1,8 @@
 'use client';
 
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import Link from 'next/link';
-import { Bus, Pencil, Users, Cpu, AlertCircle } from 'lucide-react';
+import { Bus, Pencil, Users, Cpu, AlertCircle, Search } from 'lucide-react';
 import { RetireBusButton } from './RetireBusButton';
 
 export type BusRow = {
@@ -138,6 +138,7 @@ function BusCard({ bus }: { bus: BusRow }) {
 
 export function BusFleet({ buses }: { buses: BusRow[] }) {
   const [filter, setFilter] = useState<StatusFilter>('ALL');
+  const [query, setQuery] = useState('');
 
   const counts: Record<StatusFilter, number> = {
     ALL: buses.length,
@@ -146,7 +147,14 @@ export function BusFleet({ buses }: { buses: BusRow[] }) {
     RETIRED: buses.filter((b) => b.status === 'RETIRED').length,
   };
 
-  const filtered = filter === 'ALL' ? buses : buses.filter((b) => b.status === filter);
+  const filtered = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    return buses.filter((b) => {
+      if (filter !== 'ALL' && b.status !== filter) return false;
+      if (!q) return true;
+      return `${b.plate_number} ${b.device_id ?? ''}`.toLowerCase().includes(q);
+    });
+  }, [buses, filter, query]);
   const activeLabel = FILTERS.find((f) => f.key === filter)?.label ?? '';
 
   if (buses.length === 0) {
@@ -167,8 +175,20 @@ export function BusFleet({ buses }: { buses: BusRow[] }) {
 
   return (
     <>
+      {/* Search */}
+      <div className="relative mb-4 w-full max-w-sm">
+        <Search size={15} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-sub" />
+        <input
+          type="text"
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+          placeholder="Search by plate or device…"
+          className="w-full rounded-[var(--radius-btn)] border border-rule bg-surface pl-9 pr-3 py-2.5 text-sm text-ink placeholder:text-sub focus:border-amber focus:outline-none focus:ring-1 focus:ring-amber"
+        />
+      </div>
+
       {/* Filter bar */}
-      <div className="mb-6 flex items-center gap-2">
+      <div className="mb-6 flex flex-wrap items-center gap-2">
         {FILTERS.map(({ key, label }) => {
           const active = filter === key;
           return (

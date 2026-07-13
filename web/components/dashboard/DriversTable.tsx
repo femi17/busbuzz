@@ -6,6 +6,7 @@ import Link from 'next/link';
 import { UserCheck, KeyRound, Bus, Pencil, PowerOff } from 'lucide-react';
 import * as Dialog from '@radix-ui/react-dialog';
 import { createClient } from '@/lib/supabase';
+import { TableShell } from './TableShell';
 
 export type DriverRow = {
   id: string;
@@ -306,21 +307,31 @@ export function DriversTable({
     );
   }
 
+  const busPlate = new Map(buses.map((b) => [b.id, b.plate_number]));
+
   return (
-    <div className="overflow-x-auto rounded-[var(--radius-card)] shadow-[var(--shadow-card)]">
+    <TableShell
+      rows={drivers}
+      countNoun="driver"
+      placeholder="Search drivers by name, phone, or bus…"
+      searchText={(d) =>
+        `${d.name} ${d.phone} ${d.assigned_bus_id ? busPlate.get(d.assigned_bus_id) ?? '' : ''}`
+      }
+    >
+      {(filtered) => (
       <table className="w-full min-w-[640px] border-collapse bg-surface">
-        <thead>
-          <tr className="border-b border-rule">
-            <th className="px-5 py-3.5 text-left text-[11px] font-semibold uppercase tracking-[0.1em] text-sub">Driver</th>
-            <th className="px-5 py-3.5 text-left text-[11px] font-semibold uppercase tracking-[0.1em] text-sub">Phone</th>
-            <th className="px-5 py-3.5 text-left text-[11px] font-semibold uppercase tracking-[0.1em] text-sub">Assigned Bus</th>
-            <th className="px-5 py-3.5 text-left text-[11px] font-semibold uppercase tracking-[0.1em] text-sub">PIN</th>
-            <th className="px-5 py-3.5 text-left text-[11px] font-semibold uppercase tracking-[0.1em] text-sub">Added</th>
-            <th className="px-5 py-3.5 text-left text-[11px] font-semibold uppercase tracking-[0.1em] text-sub">Actions</th>
+        <thead className="sticky top-0 z-10">
+          <tr className="border-b border-rule bg-canvas">
+            <th className="bg-canvas px-5 py-3.5 text-left text-[11px] font-semibold uppercase tracking-[0.1em] text-sub">Driver</th>
+            <th className="bg-canvas px-5 py-3.5 text-left text-[11px] font-semibold uppercase tracking-[0.1em] text-sub">Phone</th>
+            <th className="bg-canvas px-5 py-3.5 text-left text-[11px] font-semibold uppercase tracking-[0.1em] text-sub">Assigned Bus</th>
+            <th className="bg-canvas px-5 py-3.5 text-left text-[11px] font-semibold uppercase tracking-[0.1em] text-sub">PIN</th>
+            <th className="bg-canvas px-5 py-3.5 text-left text-[11px] font-semibold uppercase tracking-[0.1em] text-sub">Added</th>
+            <th className="bg-canvas px-5 py-3.5 text-left text-[11px] font-semibold uppercase tracking-[0.1em] text-sub">Actions</th>
           </tr>
         </thead>
         <tbody className="divide-y divide-rule">
-          {drivers.map((driver) => (
+          {filtered.map((driver) => (
             <tr key={driver.id} className={`hover:bg-canvas transition-colors duration-100 ${!driver.is_active ? 'opacity-50' : ''}`}>
               <td className="px-5 py-4">
                 <div className="flex items-center gap-3">
@@ -378,6 +389,7 @@ export function DriversTable({
           ))}
         </tbody>
       </table>
-    </div>
+      )}
+    </TableShell>
   );
 }
