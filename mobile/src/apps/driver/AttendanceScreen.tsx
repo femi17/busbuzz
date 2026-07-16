@@ -7,7 +7,6 @@ import {
   Image,
   Modal,
   Pressable,
-  ScrollView,
   StyleSheet,
   Text,
   View,
@@ -535,112 +534,114 @@ export default function AttendanceScreen({ navigation, route }: Props) {
         </View>
       </SafeAreaView>
 
-      <ScrollView
-        contentContainerStyle={styles.listContent}
-        showsVerticalScrollIndicator={false}
-      >
-        {pickupPins.length > 0 && (
-          <View style={styles.map}>
-            <MapView
-              style={StyleSheet.absoluteFill}
-              styleURL={StyleURL.Street}
-              scrollEnabled
-              zoomEnabled
-              pitchEnabled={false}
-              attributionEnabled={false}
-              logoEnabled={false}
-            >
-              <Camera ref={cameraRef} defaultSettings={{ zoomLevel: 16.5 }} />
-              {pickupPins.map((pin) => (
-                <PointAnnotation key={pin.id} id={`pin-${pin.id}`} coordinate={[pin.lng, pin.lat]}>
-                  <View style={styles.pickupPin}>
-                    <Text style={styles.pickupPinText}>{pin.label}</Text>
-                  </View>
-                </PointAnnotation>
-              ))}
-            </MapView>
-          </View>
-        )}
-
-        <View style={styles.stopCard}>
+      {/* Stop strip — one compact context bar, not a card */}
+      <View style={styles.stopStrip}>
+        <View style={styles.stopStripLeft}>
           <Text style={styles.stopEyebrow}>
-            {isMorningSchoolWait ? 'Final stop' : 'Current stop'}
+            {isMorningSchoolWait
+              ? 'Final stop'
+              : `Stop ${currentStopIndex + 1} of ${sortedStops.length}`}
           </Text>
           <Text style={styles.stopName} numberOfLines={1}>
             {currentStop?.name}
           </Text>
-          <View style={styles.stopMetaRow}>
-            <View style={styles.stopMetaPill}>
-              <Text style={styles.stopMetaPillText}>
-                Stop {currentStopIndex + 1} of {sortedStops.length}
-              </Text>
-            </View>
-            {!isMorningSchoolWait && (
-              <Text style={styles.stopMetaCount}>
-                {markedCount}/{totalAtStop} marked
-              </Text>
-            )}
-          </View>
         </View>
+        {!isMorningSchoolWait && (
+          <View style={styles.stopStripBadge}>
+            <Text style={styles.stopStripBadgeValue}>
+              {markedCount}/{totalAtStop}
+            </Text>
+            <Text style={styles.stopStripBadgeLabel}>marked</Text>
+          </View>
+        )}
+      </View>
 
+      {/* Map takes whatever the action sheet doesn't need */}
+      <View style={styles.mapArea}>
+        {pickupPins.length > 0 ? (
+          <MapView
+            style={StyleSheet.absoluteFill}
+            styleURL={StyleURL.Street}
+            scrollEnabled
+            zoomEnabled
+            pitchEnabled={false}
+            attributionEnabled={false}
+            logoEnabled={false}
+          >
+            <Camera ref={cameraRef} defaultSettings={{ zoomLevel: 16.5 }} />
+            {pickupPins.map((pin) => (
+              <PointAnnotation key={pin.id} id={`pin-${pin.id}`} coordinate={[pin.lng, pin.lat]}>
+                <View style={styles.pickupPin}>
+                  <Text style={styles.pickupPinText}>{pin.label}</Text>
+                </View>
+              </PointAnnotation>
+            ))}
+          </MapView>
+        ) : (
+          <View style={styles.mapEmpty} />
+        )}
+      </View>
+
+      {/* Action sheet — the single working surface. One primary action. */}
+      <View style={[styles.sheet, { paddingBottom: space.lg + insets.bottom }]}>
         {isMorningSchoolWait ? (
-          <View style={styles.schoolWaitCard}>
-            <View style={styles.schoolWaitIconRing}>
-              <BusFrontIcon size={28} color={color.ink} />
-            </View>
-            <Text style={styles.schoolWaitTitle}>
-              {nearSchool ? "You're back at school" : 'Heading to school'}
-            </Text>
-            <Text style={styles.schoolWaitSub}>
-              {nearSchool
-                ? 'Tap END TRIP below to notify parents their children are in school.'
-                : `All students are accounted for. End the trip once you're back at ${schoolName?.trim() || 'the school'}.`}
-            </Text>
-            <View style={styles.schoolWaitStatRow}>
-              <View style={styles.schoolWaitStat}>
-                <Text style={styles.schoolWaitStatValue}>{boardedCount}</Text>
-                <Text style={styles.schoolWaitStatLabel}>On board</Text>
+          <>
+            <View style={styles.sheetHeadRow}>
+              <View style={styles.sheetHeadIcon}>
+                <BusFrontIcon size={22} color={color.ink} />
               </View>
-              <View style={styles.schoolWaitStatDivider} />
-              <View style={styles.schoolWaitStat}>
-                <Text
-                  style={[
-                    styles.schoolWaitStatValue,
-                    absentCount > 0 && styles.statValueRed,
-                  ]}
-                >
+              <View style={styles.sheetHeadMeta}>
+                <Text style={styles.sheetHeadTitle}>
+                  {nearSchool ? "You're back at school" : 'Heading to school'}
+                </Text>
+                <Text style={styles.sheetHeadSub} numberOfLines={2}>
+                  {nearSchool
+                    ? 'End the trip to notify parents their children are in school.'
+                    : `End the trip once you're back at ${schoolName?.trim() || 'the school'}.`}
+                </Text>
+              </View>
+            </View>
+            <View style={styles.sheetStatRow}>
+              <View style={styles.sheetStat}>
+                <Text style={styles.sheetStatValue}>{boardedCount}</Text>
+                <Text style={styles.sheetStatLabel}>On board</Text>
+              </View>
+              <View style={styles.sheetStatDivider} />
+              <View style={styles.sheetStat}>
+                <Text style={[styles.sheetStatValue, absentCount > 0 && styles.statValueRed]}>
                   {absentCount}
                 </Text>
-                <Text style={styles.schoolWaitStatLabel}>Absent</Text>
+                <Text style={styles.sheetStatLabel}>Absent</Text>
               </View>
             </View>
-          </View>
+          </>
         ) : activeStudent ? (
-          <View style={styles.activeCard}>
-            <Text style={styles.sectionLabel}>
-              {isBoardStop ? 'Board' : 'Drop off'} · {markedCount}/{totalAtStop} here
-            </Text>
-            <View style={styles.activeCardPhotoWrap}>
+          <>
+            <View style={styles.studentRow}>
               {activeStudent.photoUrl ? (
-                <Image source={{ uri: activeStudent.photoUrl }} style={styles.activeCardPhoto} />
+                <Image source={{ uri: activeStudent.photoUrl }} style={styles.studentPhoto} />
               ) : (
-                <View style={[styles.activeCardPhoto, styles.activeCardPhotoFallback]}>
-                  <Text style={styles.activeCardPhotoInitials}>
+                <View style={[styles.studentPhoto, styles.studentPhotoFallback]}>
+                  <Text style={styles.studentPhotoInitials}>
                     {getInitials(activeStudent.name)}
                   </Text>
                 </View>
               )}
-              <View style={styles.gradeBadge}>
-                <Text style={styles.gradeBadgeText}>{activeStudent.className}</Text>
+              <View style={styles.studentMeta}>
+                <Text style={styles.studentAction}>
+                  {isBoardStop ? 'Board' : 'Drop off'}
+                </Text>
+                <Text style={styles.studentName} numberOfLines={1}>
+                  {activeStudent.name}
+                </Text>
+                <Text style={styles.studentSub} numberOfLines={1}>
+                  {activeStudent.className}
+                  {isSchoolPhase && activeStudent.stopId && stopNameById.get(activeStudent.stopId)
+                    ? ` · ${stopNameById.get(activeStudent.stopId)}`
+                    : ''}
+                </Text>
               </View>
             </View>
-
-            <Text style={styles.activeCardName}>{activeStudent.name}</Text>
-            <Text style={styles.activeCardSub}>
-              {isSchoolPhase && activeStudent.stopId && stopNameById.get(activeStudent.stopId)
-                ? stopNameById.get(activeStudent.stopId)
-                : `${routeName} · Stop #${currentStopIndex + 1}`}
-            </Text>
 
             <Pressable
               style={({ pressed }) => [styles.activePrimary, pressed && styles.pressed]}
@@ -648,6 +649,8 @@ export default function AttendanceScreen({ navigation, route }: Props) {
                 markStudent(activeStudent.id, isBoardStop ? 'BOARDED' : 'DROPPED_OFF')
               }
               disabled={!!isSubmitting[activeStudent.id]}
+              accessibilityRole="button"
+              accessibilityLabel={`Mark ${activeStudent.name} ${isBoardStop ? 'boarded' : 'dropped off'}`}
             >
               {isSubmitting[activeStudent.id] ? (
                 <ActivityIndicator color={color.white} />
@@ -667,45 +670,37 @@ export default function AttendanceScreen({ navigation, route }: Props) {
                 style={({ pressed }) => [styles.activeSecondary, pressed && styles.pressed]}
                 onPress={() => markStudent(activeStudent.id, 'ABSENT')}
                 disabled={!!isSubmitting[activeStudent.id]}
+                accessibilityRole="button"
+                accessibilityLabel={`Mark ${activeStudent.name} absent`}
               >
                 <Text style={styles.activeSecondaryText}>ABSENT</Text>
               </Pressable>
             )}
-          </View>
+          </>
         ) : (
-          <View style={styles.stopDoneCard}>
+          <View style={styles.stopDoneRow}>
             <CheckIcon size={20} color={color.routeGreen} />
             <Text style={styles.stopDoneText}>Stop complete</Text>
           </View>
         )}
-      </ScrollView>
 
-      <View style={[styles.footer, { paddingBottom: space.lg + insets.bottom }]}>
         {isLastStop ? (
-          <View style={styles.endTripWrap}>
-            <View style={[styles.endTripHalo, !endTripReady && styles.endTripHaloDim]} />
-            <Pressable
-              style={({ pressed }) => [
-                styles.endTripCircle,
-                !endTripReady && styles.endTripCircleDisabled,
-                pressed && endTripReady && styles.ctaPressed,
-              ]}
-              onPress={() => setShowEndConfirm(true)}
-              disabled={!endTripReady || isEndingTrip}
-              accessibilityRole="button"
-              accessibilityLabel="End trip"
-            >
-              <BusFrontIcon size={30} color={endTripReady ? color.white : color.sub} />
-              <Text
-                style={[
-                  styles.endTripCircleText,
-                  !endTripReady && styles.endTripCircleTextDim,
-                ]}
-              >
-                {isMorningSchoolWait && !nearSchool ? 'ARRIVING…' : 'END TRIP'}
-              </Text>
-            </Pressable>
-          </View>
+          <Pressable
+            style={({ pressed }) => [
+              styles.endTripButton,
+              !endTripReady && styles.endTripButtonDisabled,
+              pressed && endTripReady && styles.ctaPressed,
+            ]}
+            onPress={() => setShowEndConfirm(true)}
+            disabled={!endTripReady || isEndingTrip}
+            accessibilityRole="button"
+            accessibilityLabel="End trip"
+          >
+            <BusFrontIcon size={22} color={endTripReady ? color.white : color.sub} />
+            <Text style={[styles.endTripButtonText, !endTripReady && styles.endTripButtonTextDim]}>
+              {isMorningSchoolWait && !nearSchool ? 'ARRIVING…' : 'END TRIP'}
+            </Text>
+          </Pressable>
         ) : (
           <View style={styles.nextStopPreview}>
             <Text style={styles.nextStopPreviewLabel}>Next stop</Text>
@@ -885,20 +880,52 @@ const styles = StyleSheet.create({
   pressed: {
     opacity: 0.85,
   },
-  // Body
-  listContent: {
+  // Stop strip — compact context bar under the header
+  stopStrip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: space.md,
     paddingHorizontal: space.lg,
-    paddingTop: space.lg,
-    paddingBottom: space.xl,
+    paddingVertical: space.md,
+    backgroundColor: color.surface,
+    borderBottomWidth: 1,
+    borderBottomColor: color.hairline,
   },
-  map: {
-    // Tall enough to actually navigate by — the old 180px strip was too
-    // cramped and read as decoration.
-    height: 264,
-    borderRadius: radius.lg,
-    overflow: 'hidden',
+  stopStripLeft: {
+    flex: 1,
+    minWidth: 0,
+  },
+  stopStripBadge: {
+    alignItems: 'center',
+    backgroundColor: color.canvas,
+    borderRadius: radius.md,
+    paddingHorizontal: space.md,
+    paddingVertical: space.xs + 2,
+  },
+  stopStripBadgeValue: {
+    fontSize: 16,
+    fontWeight: '800',
+    color: color.ink,
+    fontVariant: ['tabular-nums'],
+  },
+  stopStripBadgeLabel: {
+    fontSize: 10,
+    fontWeight: '700',
+    letterSpacing: 0.6,
+    textTransform: 'uppercase',
+    color: color.sub,
+  },
+  // Map — fills the space between strip and sheet
+  mapArea: {
+    flex: 1,
+    minHeight: 120,
     backgroundColor: color.ink,
-    marginBottom: space.md,
+    overflow: 'hidden',
+  },
+  mapEmpty: {
+    flex: 1,
+    backgroundColor: color.canvas,
   },
   pickupPin: {
     width: 30,
@@ -915,136 +942,149 @@ const styles = StyleSheet.create({
     fontWeight: '800',
     fontSize: 13,
   },
-  // Current-stop card
-  stopCard: {
-    backgroundColor: color.surface,
-    borderRadius: radius.lg,
-    padding: space.lg,
-    marginBottom: space.lg,
-    shadowColor: '#000',
-    shadowOpacity: 0.06,
-    shadowOffset: { width: 0, height: 2 },
-    shadowRadius: 8,
-    elevation: 2,
-  },
   stopEyebrow: {
     fontSize: 11,
     fontWeight: '700',
-    letterSpacing: 1.5,
+    letterSpacing: 1.2,
     textTransform: 'uppercase',
     color: color.sub,
   },
   stopName: {
-    fontSize: 24,
+    fontSize: 20,
     fontWeight: '800',
     color: color.ink,
-    marginTop: 4,
+    marginTop: 2,
   },
-  stopMetaRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    marginTop: space.md,
-  },
-  stopMetaPill: {
-    backgroundColor: color.canvas,
-    paddingHorizontal: space.md,
-    paddingVertical: 6,
-    borderRadius: radius.pill,
-  },
-  stopMetaPillText: {
-    fontSize: 12,
-    fontWeight: '700',
-    color: color.ink,
-  },
-  stopMetaCount: {
-    fontSize: 13,
-    fontWeight: '600',
-    color: color.sub,
-  },
-  sectionLabel: {
-    fontSize: 12,
-    fontWeight: '700',
-    letterSpacing: 1,
-    textTransform: 'uppercase',
-    color: color.sub,
-    marginBottom: space.md,
-    alignSelf: 'flex-start',
-  },
-  // Stop-complete transition card (between auto-advances)
-  stopDoneCard: {
+  // Stop-complete transition row (between auto-advances)
+  stopDoneRow: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
     gap: space.sm,
-    backgroundColor: color.surface,
-    borderRadius: radius.lg,
-    paddingVertical: space.xxl,
+    paddingVertical: space.xl,
   },
   stopDoneText: {
     fontSize: 15,
     fontWeight: '700',
     color: color.sub,
   },
-  // Active student card — the one card shown at a time
-  activeCard: {
+  // Action sheet — bottom working surface
+  sheet: {
     backgroundColor: color.surface,
-    borderRadius: radius.lg + 6,
-    padding: space.xl,
-    alignItems: 'center',
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
+    paddingHorizontal: space.lg,
+    paddingTop: space.lg,
+    marginTop: -20,
     shadowColor: '#000',
-    shadowOpacity: 0.06,
-    shadowOffset: { width: 0, height: 2 },
-    shadowRadius: 8,
-    elevation: 2,
+    shadowOpacity: 0.1,
+    shadowOffset: { width: 0, height: -4 },
+    shadowRadius: 12,
+    elevation: 10,
   },
-  activeCardPhotoWrap: {
+  // Student row — photo beside name, not a tall centered column
+  studentRow: {
+    flexDirection: 'row',
     alignItems: 'center',
+    gap: space.md,
   },
-  activeCardPhoto: {
-    width: 100,
-    height: 100,
-    borderRadius: 50,
-    borderWidth: 4,
+  studentPhoto: {
+    width: 64,
+    height: 64,
+    borderRadius: 32,
+    borderWidth: 3,
     borderColor: color.danfo,
     backgroundColor: color.canvas,
   },
-  activeCardPhotoFallback: {
+  studentPhotoFallback: {
     alignItems: 'center',
     justifyContent: 'center',
   },
-  activeCardPhotoInitials: {
+  studentPhotoInitials: {
     color: color.ink,
     fontWeight: '800',
-    fontSize: 32,
+    fontSize: 22,
   },
-  gradeBadge: {
-    marginTop: -14,
-    backgroundColor: color.ink,
-    paddingHorizontal: space.md,
-    paddingVertical: 4,
-    borderRadius: radius.pill,
-    borderWidth: 2,
-    borderColor: color.surface,
+  studentMeta: {
+    flex: 1,
+    minWidth: 0,
   },
-  gradeBadgeText: {
-    color: color.white,
-    fontWeight: '800',
-    fontSize: 12,
+  studentAction: {
+    fontSize: 11,
+    fontWeight: '700',
+    letterSpacing: 1.2,
+    textTransform: 'uppercase',
+    color: color.sub,
   },
-  activeCardName: {
-    fontSize: 24,
+  studentName: {
+    fontSize: 22,
     fontWeight: '800',
     color: color.ink,
+    marginTop: 1,
+  },
+  studentSub: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: color.sub,
+    marginTop: 1,
+  },
+  // Morning school-wait content inside the sheet
+  sheetHeadRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: space.md,
+  },
+  sheetHeadIcon: {
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    backgroundColor: color.danfoSoft,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  sheetHeadMeta: {
+    flex: 1,
+    minWidth: 0,
+  },
+  sheetHeadTitle: {
+    fontSize: 18,
+    fontWeight: '800',
+    color: color.ink,
+  },
+  sheetHeadSub: {
+    fontSize: 13,
+    color: color.sub,
+    lineHeight: 18,
+    marginTop: 1,
+  },
+  sheetStatRow: {
+    flexDirection: 'row',
+    backgroundColor: color.canvas,
+    borderRadius: radius.lg,
+    paddingVertical: space.md,
     marginTop: space.md,
-    textAlign: 'center',
   },
-  activeCardSub: {
-    fontSize: 14,
-    fontWeight: '500',
+  sheetStat: {
+    flex: 1,
+    alignItems: 'center',
+  },
+  sheetStatDivider: {
+    width: 1,
+    backgroundColor: color.hairline,
+  },
+  sheetStatValue: {
+    fontSize: 22,
+    fontWeight: '800',
+    color: color.ink,
+    fontVariant: ['tabular-nums'],
+  },
+  sheetStatLabel: {
+    fontSize: 11,
+    fontWeight: '700',
+    letterSpacing: 0.8,
+    textTransform: 'uppercase',
     color: color.sub,
     marginTop: 2,
-    textAlign: 'center',
   },
   activePrimary: {
     alignSelf: 'stretch',
@@ -1055,7 +1095,7 @@ const styles = StyleSheet.create({
     backgroundColor: color.routeGreen,
     borderRadius: radius.md,
     paddingVertical: 18,
-    marginTop: space.xl,
+    marginTop: space.lg,
   },
   activePrimaryText: {
     color: color.white,
@@ -1078,86 +1118,14 @@ const styles = StyleSheet.create({
     fontWeight: '800',
     letterSpacing: 0.5,
   },
-  // Morning "heading to / back at school" card
-  schoolWaitCard: {
-    backgroundColor: color.surface,
-    borderRadius: radius.lg + 6,
-    padding: space.xl,
-    alignItems: 'center',
-    shadowColor: '#000',
-    shadowOpacity: 0.06,
-    shadowOffset: { width: 0, height: 2 },
-    shadowRadius: 8,
-    elevation: 2,
-  },
-  schoolWaitIconRing: {
-    width: 64,
-    height: 64,
-    borderRadius: 32,
-    backgroundColor: color.danfoSoft,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  schoolWaitTitle: {
-    fontSize: 20,
-    fontWeight: '800',
-    color: color.ink,
-    marginTop: space.lg,
-    textAlign: 'center',
-  },
-  schoolWaitSub: {
-    fontSize: 14,
-    color: color.sub,
-    textAlign: 'center',
-    marginTop: space.xs,
-    lineHeight: 20,
-  },
-  schoolWaitStatRow: {
-    flexDirection: 'row',
-    alignSelf: 'stretch',
-    backgroundColor: color.canvas,
-    borderRadius: radius.lg,
-    paddingVertical: space.lg,
-    marginTop: space.xl,
-  },
-  schoolWaitStat: {
-    flex: 1,
-    alignItems: 'center',
-  },
-  schoolWaitStatDivider: {
-    width: 1,
-    backgroundColor: color.hairline,
-  },
-  schoolWaitStatValue: {
-    fontSize: 24,
-    fontWeight: '800',
-    color: color.ink,
-    fontVariant: ['tabular-nums'],
-  },
-  schoolWaitStatLabel: {
-    fontSize: 11,
-    fontWeight: '700',
-    letterSpacing: 0.8,
-    textTransform: 'uppercase',
-    color: color.sub,
-    marginTop: 3,
-  },
   statValueRed: {
     color: color.stopRed,
   },
-  // Footer
-  footer: {
-    paddingHorizontal: space.lg,
-    paddingTop: space.lg,
-    backgroundColor: color.surface,
-    borderTopWidth: 1,
-    borderTopColor: color.hairline,
-  },
-  // Next-stop preview — replaces the old tappable "NEXT STOP" button now
-  // that advancing is automatic; it's informational only.
+  // Next-stop preview — informational only; advancing is automatic.
   nextStopPreview: {
     alignItems: 'center',
-    paddingVertical: space.md,
+    paddingTop: space.md,
+    paddingBottom: space.xs,
   },
   nextStopPreviewLabel: {
     fontSize: 11,
@@ -1167,7 +1135,7 @@ const styles = StyleSheet.create({
     color: color.sub,
   },
   nextStopPreviewName: {
-    fontSize: 20,
+    fontSize: 18,
     fontWeight: '800',
     color: color.ink,
     marginTop: 2,
@@ -1175,52 +1143,28 @@ const styles = StyleSheet.create({
   ctaPressed: {
     transform: [{ scale: 0.97 }],
   },
-  // End-trip circular CTA — same visual weight as the Start button on Today.
-  endTripWrap: {
-    alignSelf: 'center',
+  // End-trip CTA — full-width, same language as every other action button.
+  endTripButton: {
+    flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    height: 176,
-    marginVertical: space.sm,
+    gap: space.sm,
+    alignSelf: 'stretch',
+    backgroundColor: color.stopRed,
+    borderRadius: radius.md,
+    paddingVertical: 18,
+    marginTop: space.md,
   },
-  endTripHalo: {
-    position: 'absolute',
-    width: 176,
-    height: 176,
-    borderRadius: 88,
-    backgroundColor: color.stopRedBg,
-  },
-  endTripHaloDim: {
+  endTripButtonDisabled: {
     backgroundColor: color.canvas,
   },
-  endTripCircle: {
-    width: 136,
-    height: 136,
-    borderRadius: 68,
-    backgroundColor: color.stopRed,
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderWidth: 6,
-    borderColor: color.white,
-    shadowColor: color.stopRed,
-    shadowOpacity: 0.4,
-    shadowOffset: { width: 0, height: 8 },
-    shadowRadius: 16,
-    elevation: 8,
-  },
-  endTripCircleDisabled: {
-    backgroundColor: color.hairline,
-    shadowOpacity: 0,
-    elevation: 0,
-  },
-  endTripCircleText: {
+  endTripButtonText: {
     color: color.white,
-    fontSize: 14,
+    fontSize: 17,
     fontWeight: '800',
     letterSpacing: 0.8,
-    marginTop: space.xs,
   },
-  endTripCircleTextDim: {
+  endTripButtonTextDim: {
     color: color.sub,
   },
   // End-trip confirmation sheet

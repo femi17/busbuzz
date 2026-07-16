@@ -73,6 +73,10 @@ export default function TodayScreen({ navigation }: Props) {
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [state, setState] = useState<LoadedState | null>(null);
   const [isStarting, setIsStarting] = useState(false);
+  // The driver's explicit run choice on a BOTH route. The clock only picks
+  // the DEFAULT — drop-off mode never appears unless the driver has actually
+  // selected (or started) the afternoon run.
+  const [selectedDirection, setSelectedDirection] = useState<'MORNING' | 'AFTERNOON' | null>(null);
 
   const loadData = useCallback(async () => {
     setIsLoading(true);
@@ -140,12 +144,13 @@ export default function TodayScreen({ navigation }: Props) {
         routes.find((r) => r.type === 'BOTH') ??
         routes[0];
 
-      // One run at a time: a BOTH route follows the clock, a dedicated route
-      // is always its own direction.
+      // One run at a time: a dedicated route is always its own direction; a
+      // BOTH route uses the driver's explicit choice, with the clock only
+      // supplying the default.
       const runDirection: 'MORNING' | 'AFTERNOON' =
         route.type === 'MORNING' || route.type === 'AFTERNOON'
           ? route.type
-          : preferredType;
+          : selectedDirection ?? preferredType;
 
       // Only count students riding THIS journey.
       const { count: studentCount } = await supabase
@@ -265,7 +270,7 @@ export default function TodayScreen({ navigation }: Props) {
     } finally {
       setIsLoading(false);
     }
-  }, []);
+  }, [selectedDirection]);
 
   useEffect(() => {
     loadData();
@@ -476,6 +481,38 @@ export default function TodayScreen({ navigation }: Props) {
           {state.activeTrip ? 'Trip in progress' : 'Ready to roll?'}
         </Text>
 
+        {/* Which run — only a BOTH route offers both. Nothing about the
+            drop-off run appears anywhere unless it's selected here. */}
+        {!state.activeTrip && state.routeType === 'BOTH' ? (
+          <View style={styles.runSwitch}>
+            {(
+              [
+                { dir: 'MORNING', label: 'Morning', sub: 'Pickup' },
+                { dir: 'AFTERNOON', label: 'Afternoon', sub: 'Drop-off' },
+              ] as const
+            ).map(({ dir, label, sub }) => {
+              const active = state.runDirection === dir;
+              return (
+                <Pressable
+                  key={dir}
+                  onPress={() => setSelectedDirection(dir)}
+                  accessibilityRole="button"
+                  accessibilityState={{ selected: active }}
+                  accessibilityLabel={`${label} run — ${sub}`}
+                  style={[styles.runSwitchItem, active && styles.runSwitchItemActive]}
+                >
+                  <Text style={[styles.runSwitchLabel, active && styles.runSwitchLabelActive]}>
+                    {label}
+                  </Text>
+                  <Text style={[styles.runSwitchSub, active && styles.runSwitchSubActive]}>
+                    {sub}
+                  </Text>
+                </Pressable>
+              );
+            })}
+          </View>
+        ) : null}
+
         {/* Hero — the one thing the driver taps to begin the run */}
         <View style={styles.ctaWrap}>
           <View style={styles.ctaHalo} />
@@ -666,6 +703,49 @@ const styles = StyleSheet.create({
     color: color.ink,
     textAlign: 'center',
     marginTop: space.xs,
+  },
+  // Run selector — segmented, 48dp+ touch targets
+  runSwitch: {
+    flexDirection: 'row',
+    gap: space.sm,
+    marginTop: space.lg,
+    backgroundColor: color.surface,
+    borderRadius: radius.lg,
+    padding: space.xs + 2,
+    shadowColor: '#000',
+    shadowOpacity: 0.06,
+    shadowOffset: { width: 0, height: 2 },
+    shadowRadius: 8,
+    elevation: 2,
+  },
+  runSwitchItem: {
+    flex: 1,
+    alignItems: 'center',
+    paddingVertical: space.md,
+    borderRadius: radius.md,
+    backgroundColor: 'transparent',
+  },
+  runSwitchItemActive: {
+    backgroundColor: color.ink,
+  },
+  runSwitchLabel: {
+    fontSize: 15,
+    fontWeight: '800',
+    color: color.sub,
+  },
+  runSwitchLabelActive: {
+    color: color.danfo,
+  },
+  runSwitchSub: {
+    fontSize: 11,
+    fontWeight: '700',
+    letterSpacing: 0.6,
+    textTransform: 'uppercase',
+    color: color.sub,
+    marginTop: 1,
+  },
+  runSwitchSubActive: {
+    color: color.white,
   },
   // Hero CTA
   ctaWrap: {
