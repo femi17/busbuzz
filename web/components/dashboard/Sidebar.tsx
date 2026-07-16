@@ -4,6 +4,7 @@ import { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import {
+  BarChart3,
   LayoutDashboard,
   MapPin,
   Bus,
@@ -66,6 +67,7 @@ export function Sidebar({
       ? [
           { label: 'Dashboard', href: '/dashboard', icon: LayoutDashboard },
           { label: 'Schools', href: '/dashboard/schools', icon: School },
+          { label: 'Analytics', href: '/dashboard/analytics', icon: BarChart3 },
           { label: 'Settings', href: '/dashboard/settings', icon: Settings },
         ]
       : [
