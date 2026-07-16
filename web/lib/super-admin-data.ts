@@ -17,6 +17,12 @@ export type SchoolOverviewRow = {
   bestOnTime: { name: string; avgBoardSeconds: number | null } | null;
 };
 
+export type SchoolsOverview = {
+  schools: SchoolOverviewRow[];
+  total: number;
+  totals: { schools: number; buses: number; students: number; activeTrips: number };
+};
+
 function lagosTodayStart(): string {
   // Start of "today" in Africa/Lagos (UTC+1), expressed as a UTC instant.
   const now = new Date();
@@ -31,27 +37,66 @@ function lagosTodayDate(): string {
 
 export async function fetchSchoolsOverview(
   supabase: SupabaseClient,
-): Promise<SchoolOverviewRow[]> {
+  page = 1,
+  pageSize = 25,
+): Promise<SchoolsOverview> {
+  const from = (page - 1) * pageSize;
+  const to = from + pageSize - 1;
+
+  // Platform totals are exact head-counts — no rows leave the DB — and the
+  // school list itself is a single paginated page, so this stays flat no
+  // matter how many schools are onboarded.
   const [
-    { data: schools },
+    { data: schools, count: schoolCount },
+    { count: busTotal },
+    { count: studentTotal },
+    { count: activeTripTotal },
+  ] = await Promise.all([
+    supabase
+      .from('schools')
+      .select('id, name, address, is_active', { count: 'exact' })
+      .order('name')
+      .range(from, to),
+    supabase.from('buses').select('id', { count: 'exact', head: true }).neq('status', 'RETIRED'),
+    supabase.from('students').select('id', { count: 'exact', head: true }).eq('is_active', true),
+    supabase.from('trips').select('id', { count: 'exact', head: true }).eq('status', 'ACTIVE'),
+  ]);
+
+  const schoolRows = (schools ?? []) as { id: string; name: string; address: string; is_active: boolean }[];
+  const pageIds = schoolRows.map((s) => s.id);
+
+  // Per-school detail only for the schools on this page.
+  const emptyResult = { data: [] as never[] };
+  const [
     { data: buses },
     { data: routes },
     { data: students },
     { data: drivers },
     { data: activeTrips },
     { data: awards },
-  ] = await Promise.all([
-    supabase.from('schools').select('id, name, address, is_active').order('name'),
-    supabase.from('buses').select('school_id, status'),
-    supabase.from('routes').select('school_id'),
-    supabase.from('students').select('school_id, is_active'),
-    supabase.from('profiles').select('school_id').eq('role', 'DRIVER').eq('is_active', true),
-    supabase.from('trips').select('bus:buses(school_id)').eq('status', 'ACTIVE'),
-    supabase
-      .from('semester_awards')
-      .select('school_id, winner_name, winner_avg_board_seconds, computed_at')
-      .order('computed_at', { ascending: false }),
-  ]);
+  ] = pageIds.length
+    ? await Promise.all([
+        supabase.from('buses').select('school_id, status').in('school_id', pageIds),
+        supabase.from('routes').select('school_id').in('school_id', pageIds),
+        supabase.from('students').select('school_id, is_active').in('school_id', pageIds),
+        supabase
+          .from('profiles')
+          .select('school_id')
+          .eq('role', 'DRIVER')
+          .eq('is_active', true)
+          .in('school_id', pageIds),
+        supabase
+          .from('trips')
+          .select('bus:buses!inner(school_id)')
+          .eq('status', 'ACTIVE')
+          .in('bus.school_id', pageIds),
+        supabase
+          .from('semester_awards')
+          .select('school_id, winner_name, winner_avg_board_seconds, computed_at')
+          .in('school_id', pageIds)
+          .order('computed_at', { ascending: false }),
+      ])
+    : [emptyResult, emptyResult, emptyResult, emptyResult, emptyResult, emptyResult];
 
   const countBy = <T extends { school_id: string | null }>(
     rows: T[] | null,
@@ -92,8 +137,8 @@ export async function fetchSchoolsOverview(
     bestOnTime.set(a.school_id, { name: a.winner_name, avgBoardSeconds: a.winner_avg_board_seconds });
   }
 
-  return ((schools ?? []) as { id: string; name: string; address: string; is_active: boolean }[]).map(
-    (s) => ({
+  return {
+    schools: schoolRows.map((s) => ({
       id: s.id,
       name: s.name,
       address: s.address,
@@ -104,8 +149,15 @@ export async function fetchSchoolsOverview(
       drivers: driverCount.get(s.id) ?? 0,
       activeTrips: activeTripCount.get(s.id) ?? 0,
       bestOnTime: bestOnTime.get(s.id) ?? null,
-    }),
-  );
+    })),
+    total: schoolCount ?? 0,
+    totals: {
+      schools: schoolCount ?? 0,
+      buses: busTotal ?? 0,
+      students: studentTotal ?? 0,
+      activeTrips: activeTripTotal ?? 0,
+    },
+  };
 }
 
 export type LeaderboardEntry = {

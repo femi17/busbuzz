@@ -6,6 +6,7 @@ import { fetchSchoolsOverview } from '@/lib/super-admin-data';
 import { LiveDashboardGrid } from '@/components/dashboard/LiveDashboardGrid';
 import { SuperAdminHome } from '@/components/dashboard/SuperAdminHome';
 import { DashboardHeader } from '@/components/dashboard/DashboardHeader';
+import { Pagination } from '@/components/dashboard/Pagination';
 
 // Live dashboard: never serve cached counts. Without this Next's Data Cache can
 // hand back a stale count for some tables (e.g. buses/students showing 0 while
@@ -29,7 +30,14 @@ function formatDate(): string {
   });
 }
 
-export default async function DashboardHomePage() {
+const SCHOOLS_PAGE_SIZE = 25;
+
+export default async function DashboardHomePage({
+  searchParams,
+}: {
+  searchParams: Promise<{ [key: string]: string | string[] | undefined }>;
+}) {
+  const { page: pageParam } = await searchParams;
   const supabase = await createClient();
 
   const { data: userData } = await supabase.auth.getUser();
@@ -65,7 +73,9 @@ export default async function DashboardHomePage() {
   // Super admin has no school of their own — their home is the platform-wide
   // schools overview, not the single-school live grid.
   if (role === 'SUPER_ADMIN') {
-    const schools = await fetchSchoolsOverview(supabase);
+    const page = Math.max(1, parseInt(typeof pageParam === 'string' ? pageParam : '1', 10) || 1);
+    const overview = await fetchSchoolsOverview(supabase, page, SCHOOLS_PAGE_SIZE);
+    const totalPages = Math.max(1, Math.ceil(overview.total / SCHOOLS_PAGE_SIZE));
     return (
       <div className="max-w-[1200px] mx-auto">
         <DashboardHeader
@@ -73,7 +83,8 @@ export default async function DashboardHomePage() {
           title={`${greeting}, ${adminName}`}
           subtitle="Platform overview across all schools"
         />
-        <SuperAdminHome schools={schools} />
+        <SuperAdminHome schools={overview.schools} totals={overview.totals} />
+        <Pagination page={page} totalPages={totalPages} query="" basePath="/dashboard" />
       </div>
     );
   }

@@ -27,23 +27,20 @@ function Stat({
   );
 }
 
-export function SuperAdminHome({ schools }: { schools: SchoolOverviewRow[] }) {
-  const totals = schools.reduce(
-    (acc, s) => ({
-      buses: acc.buses + s.buses,
-      students: acc.students + s.students,
-      activeTrips: acc.activeTrips + s.activeTrips,
-    }),
-    { buses: 0, students: 0, activeTrips: 0 },
-  );
-
+export function SuperAdminHome({
+  schools,
+  totals,
+}: {
+  schools: SchoolOverviewRow[];
+  totals: { schools: number; buses: number; students: number; activeTrips: number };
+}) {
   return (
     <div className="flex flex-col gap-5">
       {/* Platform totals */}
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
         <div className="rounded-[var(--radius-card)] bg-surface p-4 shadow-[var(--shadow-card)]">
           <p className="font-mono text-[10px] font-semibold uppercase tracking-[0.14em] text-sub">Schools</p>
-          <p className="mt-1 text-[26px] font-bold text-ink tabular-nums">{schools.length}</p>
+          <p className="mt-1 text-[26px] font-bold text-ink tabular-nums">{totals.schools}</p>
         </div>
         <div className="rounded-[var(--radius-card)] bg-surface p-4 shadow-[var(--shadow-card)]">
           <p className="font-mono text-[10px] font-semibold uppercase tracking-[0.14em] text-sub">Buses</p>
