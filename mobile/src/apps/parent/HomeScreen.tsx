@@ -142,6 +142,13 @@ function getInitials(name: string): string {
   return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
 }
 
+// "4:32" style countdown for the ETA column.
+function formatCountdown(totalSeconds: number): string {
+  const s = Math.max(0, Math.round(totalSeconds));
+  const m = Math.floor(s / 60);
+  return `${m}:${String(s % 60).padStart(2, '0')}`;
+}
+
 // Where a child (not necessarily the selected one) should be pinned:
 // their own saved pickup spot, or failing that, their school — no assigned
 // stop lookup for non-selected siblings, to avoid an extra query per child.
@@ -184,6 +191,10 @@ export default function HomeScreen() {
   const [attendance, setAttendance] = useState<AttendanceState>(null);
   const [busSpeed, setBusSpeed] = useState<number | null>(null);
   const [busPosition, setBusPosition] = useState<{ lat: number; lng: number } | null>(null);
+  // When the last GPS ping landed — anchors the ETA countdown so it keeps
+  // ticking down between pings instead of jumping every 10 seconds.
+  const [busUpdatedAt, setBusUpdatedAt] = useState<number | null>(null);
+  const [nowTick, setNowTick] = useState(() => Date.now());
   const [isApproaching, setIsApproaching] = useState(false);
   const [isLoadingTrip, setIsLoadingTrip] = useState(true);
   const [tripErrorMessage, setTripErrorMessage] = useState<string | null>(null);
@@ -625,6 +636,7 @@ export default function HomeScreen() {
     setAttendance(null);
     setBusPosition(null);
     setBusSpeed(null);
+    setBusUpdatedAt(null);
     setIsApproaching(false);
     setBreadcrumb([]);
     setReachedStops({});
@@ -679,6 +691,7 @@ export default function HomeScreen() {
         setAttendance(null);
         setBusPosition(null);
         setBusSpeed(null);
+        setBusUpdatedAt(null);
         setIsApproaching(false);
         setBreadcrumb([]);
         setReachedStops({});
@@ -759,6 +772,7 @@ export default function HomeScreen() {
 
           setBusPosition({ lat: payload.lat, lng: payload.lng });
           setBusSpeed(payload.speed);
+          setBusUpdatedAt(Date.now());
           setBreadcrumb((prev) => {
             const next = [...prev, { lat: payload.lat, lng: payload.lng }];
             return next.length > MAX_BREADCRUMB_POINTS ? next.slice(-MAX_BREADCRUMB_POINTS) : next;
@@ -855,14 +869,40 @@ export default function HomeScreen() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedStudent]);
 
+  // Tick once a second while a trip is live so the ETA counts down smoothly
+  // between GPS pings.
+  useEffect(() => {
+    if (!trip) return;
+    const id = setInterval(() => setNowTick(Date.now()), 1000);
+    return () => clearInterval(id);
+  }, [!!trip]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // What the countdown targets: the child's own stop until they've boarded;
+  // once boarded on a school-bound run, the school — that's where the bus is
+  // taking them, so that's the arrival the parent is waiting on.
+  const etaTarget =
+    attendance?.status === 'BOARDED' &&
+    routeType !== 'AFTERNOON' &&
+    selectedStudent?.schoolLat != null &&
+    selectedStudent?.schoolLng != null
+      ? { latitude: selectedStudent.schoolLat, longitude: selectedStudent.schoolLng }
+      : stop;
+
   const distanceToStop =
-    stop && busPosition
-      ? haversineDistance(busPosition.lat, busPosition.lng, stop.latitude, stop.longitude)
+    etaTarget && busPosition
+      ? haversineDistance(busPosition.lat, busPosition.lng, etaTarget.latitude, etaTarget.longitude)
       : null;
 
   const etaSeconds =
     distanceToStop !== null && busSpeed !== null
       ? estimateETA(distanceToStop, busSpeed)
+      : null;
+
+  // The live countdown: seconds left as of the last ping, minus the time
+  // elapsed since that ping.
+  const countdownSeconds =
+    trip && etaSeconds !== null && Number.isFinite(etaSeconds) && busUpdatedAt !== null
+      ? Math.max(0, etaSeconds - (nowTick - busUpdatedAt) / 1000)
       : null;
 
   const isArriving =
@@ -871,10 +911,6 @@ export default function HomeScreen() {
       (distanceToStop !== null && distanceToStop < APPROACH_RADIUS_M));
   const isStopped =
     !!trip && busSpeed === 0 && distanceToStop !== null && distanceToStop > APPROACH_RADIUS_M;
-  const etaMinutes =
-    etaSeconds !== null && etaSeconds > 60 && Number.isFinite(etaSeconds)
-      ? Math.round(etaSeconds / 60)
-      : null;
 
   const chip = getStatusChip(trip, attendance, busSpeed, isApproaching, routeType);
   const selectedChildColor = selectedStudent
@@ -903,13 +939,26 @@ export default function HomeScreen() {
   // The stop the bus is currently heading for = the first one it hasn't reached
   // yet. Highlighted in the timeline so the journey reads as a progression.
   const nextStopIndex = routeStops.findIndex((s) => !reachedStops[s.id]);
+  const nextRouteStop = nextStopIndex >= 0 ? routeStops[nextStopIndex] : null;
 
-  // ETA shown in the card's right column. Prefer the live estimate; fall back
-  // to the stop's scheduled ride time (even during a trip, e.g. before the
-  // first GPS ping arrives) so the column is never blank.
+  // The child's own stop name — from their assigned stop, or (if that query
+  // came back empty) looked up on the route itself, so the card never shows
+  // a bare dash when the route data knows the answer.
+  const myStopName =
+    stop?.name ?? routeStops.find((s) => s.id === selectedStudent?.stopId)?.name ?? null;
+
+  // Left column of the card: during a live trip, the stop the bus is heading
+  // to right now; otherwise the child's own stop.
+  const nextStopText = trip ? nextRouteStop?.name ?? myStopName ?? '—' : myStopName ?? '—';
+  const nextStopLabel = trip ? 'Next stop' : 'Your stop';
+
+  // ETA shown in the card's right column — a live m:ss countdown to the
+  // child's stop (or the school once they've boarded). Falls back to the
+  // stop's scheduled ride time (e.g. before the first GPS ping arrives) so
+  // the column is never blank.
   let etaText = '—';
   if (isArriving) etaText = 'Now';
-  else if (trip && etaMinutes !== null) etaText = `${etaMinutes} min`;
+  else if (countdownSeconds !== null) etaText = formatCountdown(countdownSeconds);
   else if (stop?.etaMinutes != null) etaText = `~${stop.etaMinutes} min`;
   else if (trip) etaText = 'En route';
 
@@ -1078,11 +1127,21 @@ export default function HomeScreen() {
                 {isTogglingAbsence ? (
                   <ActivityIndicator size="small" color={absentToday ? color.white : color.ink900} />
                 ) : (
-                  <SchoolIcon
-                    size={18}
-                    color={absentToday ? color.white : color.ink900}
-                    strikethrough={absentToday}
-                  />
+                  <>
+                    {/* Slashed-school glyph in both states — the slash is what
+                        says "skip school today", so it can't read as a home
+                        button. The label removes any remaining guesswork. */}
+                    <SchoolIcon
+                      size={16}
+                      color={absentToday ? color.white : color.ink900}
+                      strikethrough
+                    />
+                    <Text
+                      style={[styles.topIconButtonLabel, absentToday && styles.topIconButtonLabelActive]}
+                    >
+                      {absentToday ? 'Not going today' : 'Not going?'}
+                    </Text>
+                  </>
                 )}
               </Pressable>
             ) : null}
@@ -1257,8 +1316,8 @@ export default function HomeScreen() {
               {/* Next stop + ETA, with live status under the ETA */}
               <View style={styles.statsRow}>
                 <View style={styles.statCol}>
-                  <Text style={styles.statLabel}>Next stop</Text>
-                  <Text style={styles.statValue} numberOfLines={1}>{stop?.name ?? '—'}</Text>
+                  <Text style={styles.statLabel}>{nextStopLabel}</Text>
+                  <Text style={styles.statValue} numberOfLines={1}>{nextStopText}</Text>
                 </View>
                 <View style={styles.statColRight}>
                   <Text style={styles.statLabel}>ETA</Text>
@@ -1425,11 +1484,13 @@ const styles = StyleSheet.create({
   // child-switcher avatars it sits beside. White/neutral when the child is
   // attending; flips to red with a struck-through school glyph once marked.
   topIconButton: {
-    width: 36,
     height: 36,
     borderRadius: 18,
+    paddingHorizontal: space.sm + 2,
+    flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
+    gap: 6,
     backgroundColor: color.white,
     borderWidth: 2,
     borderColor: 'rgba(255,255,255,0.6)',
@@ -1445,6 +1506,14 @@ const styles = StyleSheet.create({
   },
   topIconButtonPressed: {
     opacity: 0.85,
+  },
+  topIconButtonLabel: {
+    fontSize: 12,
+    fontWeight: '800',
+    color: color.ink900,
+  },
+  topIconButtonLabelActive: {
+    color: color.white,
   },
   childSwitcherIcon: {
     width: 36,
