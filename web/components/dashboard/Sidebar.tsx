@@ -58,20 +58,27 @@ export function Sidebar({
     return () => window.removeEventListener('keydown', onKey);
   }, [open]);
 
-  const navItems: NavItem[] = [
-    { label: 'Dashboard', href: '/dashboard', icon: LayoutDashboard },
-    ...(userRole === 'SUPER_ADMIN'
-      ? [{ label: 'Schools', href: '/dashboard/schools', icon: School }]
-      : []),
-    { label: 'Drivers', href: '/dashboard/drivers', icon: UserCheck },
-    { label: 'Buses', href: '/dashboard/buses', icon: Bus },
-    { label: 'Routes', href: '/dashboard/routes', icon: RouteIcon },
-    { label: 'Students', href: '/dashboard/students', icon: GraduationCap },
-    { label: 'Live Map', href: '/dashboard/live', icon: MapPin },
-    { label: 'Users', href: '/dashboard/users', icon: Users },
-    { label: 'Reports', href: '/dashboard/reports', icon: FileText },
-    { label: 'Settings', href: '/dashboard/settings', icon: Settings },
-  ];
+  // The super admin's world is cross-school: overview, the schools registry,
+  // and settings. Everything else (drivers, buses, routes, students, live map,
+  // users, reports) is a single school's operational view — school admin only.
+  const navItems: NavItem[] =
+    userRole === 'SUPER_ADMIN'
+      ? [
+          { label: 'Dashboard', href: '/dashboard', icon: LayoutDashboard },
+          { label: 'Schools', href: '/dashboard/schools', icon: School },
+          { label: 'Settings', href: '/dashboard/settings', icon: Settings },
+        ]
+      : [
+          { label: 'Dashboard', href: '/dashboard', icon: LayoutDashboard },
+          { label: 'Drivers', href: '/dashboard/drivers', icon: UserCheck },
+          { label: 'Buses', href: '/dashboard/buses', icon: Bus },
+          { label: 'Routes', href: '/dashboard/routes', icon: RouteIcon },
+          { label: 'Students', href: '/dashboard/students', icon: GraduationCap },
+          { label: 'Live Map', href: '/dashboard/live', icon: MapPin },
+          { label: 'Users', href: '/dashboard/users', icon: Users },
+          { label: 'Reports', href: '/dashboard/reports', icon: FileText },
+          { label: 'Settings', href: '/dashboard/settings', icon: Settings },
+        ];
 
   async function handleSignOut() {
     const supabase = createClient();

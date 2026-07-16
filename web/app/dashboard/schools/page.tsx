@@ -2,6 +2,9 @@ import Link from 'next/link';
 import { School, MoreHorizontal } from 'lucide-react';
 import { createClient } from '@/lib/supabase-server';
 import { DashboardHeader } from '@/components/dashboard/DashboardHeader';
+import { Pagination } from '@/components/dashboard/Pagination';
+
+const PAGE_SIZE = 25;
 
 type SchoolRow = {
   id: string;
@@ -33,20 +36,35 @@ export default async function SchoolsPage({
 }: {
   searchParams: Promise<{ [key: string]: string | string[] | undefined }>;
 }) {
-  const { created } = await searchParams;
+  const { created, page: pageParam } = await searchParams;
   const supabase = await createClient();
 
-  const { data: schools } = await supabase
-    .from('schools')
-    .select('*')
-    .order('created_at', { ascending: false });
+  const page = Math.max(1, parseInt(typeof pageParam === 'string' ? pageParam : '1', 10) || 1);
+  const from = (page - 1) * PAGE_SIZE;
+  const to = from + PAGE_SIZE - 1;
 
-  const { data: admins } = await supabase
-    .from('profiles')
-    .select('id, name, school_id')
-    .eq('role', 'SCHOOL_ADMIN');
+  // Server-side pagination: only PAGE_SIZE rows leave the DB per view, with
+  // the exact total riding along on the same query.
+  const { data: schools, count } = await supabase
+    .from('schools')
+    .select('*', { count: 'exact' })
+    .order('created_at', { ascending: false })
+    .range(from, to);
 
   const schoolRows = (schools ?? []) as unknown as SchoolRow[];
+  const total = count ?? 0;
+  const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
+
+  // Only the admins of the schools on this page — not every admin in the DB.
+  const pageSchoolIds = schoolRows.map((s) => s.id);
+  const { data: admins } = pageSchoolIds.length
+    ? await supabase
+        .from('profiles')
+        .select('id, name, school_id')
+        .eq('role', 'SCHOOL_ADMIN')
+        .in('school_id', pageSchoolIds)
+    : { data: [] };
+
   const adminRows = (admins ?? []) as unknown as AdminRow[];
 
   const adminMap = new Map<string, { id: string; name: string }>();
@@ -80,7 +98,8 @@ export default async function SchoolsPage({
       {/* Count row */}
       <div className="mb-4">
         <p className="text-sm font-medium text-sub">
-          {schoolRows.length} {schoolRows.length === 1 ? 'school' : 'schools'}
+          {total} {total === 1 ? 'school' : 'schools'}
+          {totalPages > 1 ? ` · page ${page} of ${totalPages}` : ''}
         </p>
       </div>
 
@@ -144,6 +163,8 @@ export default async function SchoolsPage({
           </div>
         )}
       </div>
+
+      <Pagination page={page} totalPages={totalPages} query="" basePath="/dashboard/schools" />
     </div>
   );
 }
