@@ -53,6 +53,9 @@ export type DriverStackParamList = {
   PickupOrder: {
     routeId: string;
     routeName: string;
+    // A dedicated AFTERNOON route's order IS the drop-off order (no
+    // reversal happens) — drives the screen's wording.
+    routeType: 'MORNING' | 'AFTERNOON' | 'BOTH';
   };
 };
 

@@ -4,10 +4,10 @@ import { useEffect, useMemo, useRef, useState, type ElementRef } from 'react';
 import {
   ActivityIndicator,
   Alert,
-  FlatList,
   Image,
   Modal,
   Pressable,
+  ScrollView,
   StyleSheet,
   Text,
   View,
@@ -24,7 +24,6 @@ import {
   AlertDiamondIcon,
   BusFrontIcon,
   CheckIcon,
-  CloseIcon,
 } from './components/Icons';
 import type { DriverStackParamList } from './DriverApp';
 import { stopGPSBroadcast } from './gpsService';
@@ -37,10 +36,20 @@ const SCHOOL_STOP_ID = '__school__';
 const SCHOOL_MATCH_RADIUS_M = 200;
 // "Back at school" for the auto-end check.
 const SCHOOL_ARRIVE_RADIUS_M = 300;
+// Pause between finishing one student/stop and auto-advancing to the next —
+// long enough to register the checkmark, short enough not to feel stuck.
+const AUTO_ADVANCE_DELAY_MS = 650;
 
 type Props = NativeStackScreenProps<DriverStackParamList, 'Attendance'>;
 
 type AttendanceStudent = DriverStackParamList['Attendance']['students'][number];
+
+type MapPin = {
+  id: string;
+  lat: number;
+  lng: number;
+  label: string;
+};
 
 function getInitials(name: string): string {
   const parts = name.trim().split(/\s+/);
@@ -48,24 +57,6 @@ function getInitials(name: string): string {
   const last = parts.length > 1 ? parts[parts.length - 1][0] : '';
   return (first + last).toUpperCase();
 }
-
-const STATUS_LABEL: Record<AttendanceStatus, string> = {
-  BOARDED: 'Boarded',
-  ABSENT: 'Absent',
-  DROPPED_OFF: 'Dropped off',
-};
-
-const STATUS_COLOR: Record<AttendanceStatus, string> = {
-  BOARDED: color.routeGreen,
-  ABSENT: color.stopRed,
-  DROPPED_OFF: color.routeGreen,
-};
-
-const STATUS_BG: Record<AttendanceStatus, string> = {
-  BOARDED: color.routeGreenBg,
-  ABSENT: color.stopRedBg,
-  DROPPED_OFF: color.routeGreenBg,
-};
 
 export default function AttendanceScreen({ navigation, route }: Props) {
   const {
@@ -92,7 +83,7 @@ export default function AttendanceScreen({ navigation, route }: Props) {
   const [isLoadingExisting, setIsLoadingExisting] = useState(true);
   const [isEndingTrip, setIsEndingTrip] = useState(false);
   const [showEndConfirm, setShowEndConfirm] = useState(false);
-  const [sheetStudentId, setSheetStudentId] = useState<string | null>(null);
+  const [nearSchool, setNearSchool] = useState(false);
   const cameraRef = useRef<ElementRef<typeof Camera> | null>(null);
 
   // A BOTH route is authored in morning order (homes → school); the afternoon
@@ -139,6 +130,7 @@ export default function AttendanceScreen({ navigation, route }: Props) {
 
   const isLastStop = currentStopIndex === sortedStops.length - 1;
   const currentStop = sortedStops[currentStopIndex];
+  const nextStop = !isLastStop ? sortedStops[currentStopIndex + 1] : null;
 
   // Morning: board at every stop, drop everyone at the last (school).
   // Afternoon: board everyone at the first stop (school), drop at each stop after.
@@ -257,11 +249,6 @@ export default function AttendanceScreen({ navigation, route }: Props) {
     }
   }
 
-  async function markFromSheet(studentId: string, status: AttendanceStatus) {
-    const ok = await markStudent(studentId, status);
-    if (ok) setSheetStudentId(null);
-  }
-
   const [showSosConfirm, setShowSosConfirm] = useState(false);
 
   async function sendSOS() {
@@ -291,10 +278,6 @@ export default function AttendanceScreen({ navigation, route }: Props) {
     } catch {
       Alert.alert('Failed to send SOS. Please call the school directly.');
     }
-  }
-
-  function handleNextStop() {
-    setCurrentStopIndex((i) => i + 1);
   }
 
   async function confirmEndTrip() {
@@ -348,50 +331,78 @@ export default function AttendanceScreen({ navigation, route }: Props) {
   const isBoardStop = isBoardStopAt(currentStopIndex);
   const currentStopStudents = studentsForStop(currentStopIndex);
   const isSchoolPhase = currentStop?.id === SCHOOL_STOP_ID;
+  // The morning run's final phase is a wait-for-arrival + end-trip screen,
+  // not a per-student marking screen (nobody needs individually marking —
+  // confirmEndTrip sweeps everyone still boarded into DROPPED_OFF).
+  const isMorningSchoolWait = isSchoolPhase && direction === 'MORNING';
 
   // Each student's own street (their assigned stop) — shown at the school
-  // phase where the whole bus is listed, so rows aren't all captioned with
-  // one street name.
+  // boarding phase (afternoon) where the whole bus is listed, so rows aren't
+  // all captioned with one street name.
   const stopNameById = useMemo(() => {
     const map = new Map<string, string>();
     for (const s of stops) map.set(s.id, s.name);
     return map;
   }, [stops]);
 
+  // The next student at this stop still needing a mark — the one card shown
+  // at a time. Marking them reveals whichever student is next in the same
+  // find() call, no extra state needed.
+  const activeStudent = isMorningSchoolWait
+    ? null
+    : currentStopStudents.find(
+        (s) => !isDoneAtStop(attendanceMap[s.id], isBoardStop),
+      ) ?? null;
+
   // Only students with a real saved pickup location get a pin — showing a
   // fallback here (e.g. the school) would send the driver to the wrong door.
-  const pickupPins = currentStopStudents.filter(
-    (s): s is AttendanceStudent & { pickupLat: number; pickupLng: number } =>
-      s.pickupLat != null && s.pickupLng != null,
-  );
+  // At the school phase nobody's home pin is relevant any more (they're all
+  // already on the bus, or about to board) — show the school itself instead.
+  const pickupPins: MapPin[] = isSchoolPhase
+    ? schoolLat != null && schoolLng != null
+      ? [
+          {
+            id: SCHOOL_STOP_ID,
+            lat: schoolLat,
+            lng: schoolLng,
+            label: (schoolName?.trim() || 'School')[0]?.toUpperCase() ?? 'S',
+          },
+        ]
+      : []
+    : currentStopStudents
+        .filter(
+          (s): s is AttendanceStudent & { pickupLat: number; pickupLng: number } =>
+            s.pickupLat != null && s.pickupLng != null,
+        )
+        .map((s) => ({
+          id: s.id,
+          lat: s.pickupLat,
+          lng: s.pickupLng,
+          label: s.name[0]?.toUpperCase() ?? '?',
+        }));
 
   useEffect(() => {
     if (pickupPins.length === 0) return;
 
     if (pickupPins.length === 1) {
       cameraRef.current?.setCamera({
-        centerCoordinate: [pickupPins[0].pickupLng, pickupPins[0].pickupLat],
-        // Street level — close enough to recognise the actual house/junction.
-        zoomLevel: 16.3,
+        centerCoordinate: [pickupPins[0].lng, pickupPins[0].lat],
+        zoomLevel: 14,
         animationDuration: 0,
       });
       return;
     }
 
-    const lngs = pickupPins.map((s) => s.pickupLng);
-    const lats = pickupPins.map((s) => s.pickupLat);
+    const lngs = pickupPins.map((s) => s.lng);
+    const lats = pickupPins.map((s) => s.lat);
     cameraRef.current?.fitBounds(
       [Math.max(...lngs), Math.max(...lats)],
       [Math.min(...lngs), Math.min(...lats)],
-      56,
+      40,
       0,
     );
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [currentStop?.id]);
-
-  const allCurrentMarked = currentStopStudents.every((s) =>
-    isDoneAtStop(attendanceMap[s.id], isBoardStop),
-  );
 
   // The trip can end once every student is accounted for (boarded, dropped,
   // or absent) and the driver is at the run's final stop. Students still on
@@ -402,15 +413,16 @@ export default function AttendanceScreen({ navigation, route }: Props) {
   ).length;
   const allAccounted = students.every((s) => !!attendanceMap[s.id]);
   const canEndTrip = isLastStop && allAccounted;
+  // Morning's end trip is additionally gated on GPS proximity — the driver
+  // shouldn't be able to tap it until the bus is actually back at school.
+  const endTripReady = canEndTrip && (!isMorningSchoolWait || nearSchool);
 
-  // Forgot to end the trip? Once every pickup is done on the morning run,
-  // watch the phone's own GPS; when the bus is back at the school, jump to
-  // the school phase and offer to end the trip on the driver's behalf
-  // (remaining riders are marked dropped off on confirm).
-  const autoEndPromptedRef = useRef(false);
+  // Once every pickup is done on the morning run, watch the phone's own GPS;
+  // when the bus is back at the school, reveal the end-trip button and pop a
+  // one-time confirmation the driver can dismiss and re-open manually.
   useEffect(() => {
-    if (direction !== 'MORNING' || autoEndPromptedRef.current) return;
-    if (!allAccounted || showEndConfirm) return;
+    if (!isMorningSchoolWait || nearSchool) return;
+    if (!allAccounted) return;
     if (schoolLat == null || schoolLng == null) return;
 
     let cancelled = false;
@@ -419,7 +431,7 @@ export default function AttendanceScreen({ navigation, route }: Props) {
         const pos = await Location.getCurrentPositionAsync({
           accuracy: Location.Accuracy.Balanced,
         });
-        if (cancelled || autoEndPromptedRef.current) return;
+        if (cancelled) return;
         const dist = haversineDistance(
           pos.coords.latitude,
           pos.coords.longitude,
@@ -427,12 +439,11 @@ export default function AttendanceScreen({ navigation, route }: Props) {
           schoolLng,
         );
         if (dist <= SCHOOL_ARRIVE_RADIUS_M) {
-          autoEndPromptedRef.current = true;
-          setCurrentStopIndex(sortedStops.length - 1);
+          setNearSchool(true);
           setShowEndConfirm(true);
         }
       } catch {
-        // GPS unavailable — the driver can still end manually.
+        // GPS unavailable — the driver can still end manually once shown.
       }
     };
 
@@ -442,11 +453,35 @@ export default function AttendanceScreen({ navigation, route }: Props) {
       cancelled = true;
       clearInterval(intervalId);
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [direction, allAccounted, showEndConfirm, schoolLat, schoolLng, sortedStops.length]);
+  }, [isMorningSchoolWait, nearSchool, allAccounted, schoolLat, schoolLng]);
+
+  // Auto-advance: once every student at this stop is marked, move to the
+  // next stop on its own — no "next stop" tap required. The morning school
+  // phase and the run's last stop are handled by the end-trip flow instead.
+  useEffect(() => {
+    if (isLoadingExisting) return;
+    if (isMorningSchoolWait) return;
+    if (isLastStop) return;
+    if (activeStudent) return;
+    if (currentStopStudents.length === 0) return;
+
+    const timer = setTimeout(() => {
+      setCurrentStopIndex((i) => i + 1);
+    }, AUTO_ADVANCE_DELAY_MS);
+    return () => clearTimeout(timer);
+  }, [
+    isLoadingExisting,
+    isMorningSchoolWait,
+    isLastStop,
+    activeStudent,
+    currentStopStudents.length,
+  ]);
 
   const droppedCount = students.filter(
     (s) => attendanceMap[s.id] === 'DROPPED_OFF',
+  ).length;
+  const boardedCount = students.filter(
+    (s) => attendanceMap[s.id] === 'BOARDED',
   ).length;
   const absentCount = students.filter(
     (s) => attendanceMap[s.id] === 'ABSENT',
@@ -460,10 +495,8 @@ export default function AttendanceScreen({ navigation, route }: Props) {
     );
   }
 
-  const sheetStudent = currentStopStudents.find((s) => s.id === sheetStudentId) ?? null;
   const markedCount = currentStopStudents.filter((s) => !!attendanceMap[s.id]).length;
   const totalAtStop = currentStopStudents.length;
-  const progressPct = totalAtStop ? Math.round((markedCount / totalAtStop) * 100) : 0;
 
   return (
     <View style={styles.container}>
@@ -502,242 +535,186 @@ export default function AttendanceScreen({ navigation, route }: Props) {
         </View>
       </SafeAreaView>
 
-      <FlatList<AttendanceStudent>
-        data={currentStopStudents}
-        keyExtractor={(item: AttendanceStudent) => item.id}
+      <ScrollView
         contentContainerStyle={styles.listContent}
         showsVerticalScrollIndicator={false}
-        ListHeaderComponent={
-          <View>
-            {pickupPins.length > 0 && (
-              <View style={styles.map}>
-                <MapView
-                  style={StyleSheet.absoluteFill}
-                  styleURL={StyleURL.Street}
-                  scrollEnabled
-                  zoomEnabled
-                  pitchEnabled={false}
-                  attributionEnabled={false}
-                  logoEnabled={false}
-                >
-                  <Camera ref={cameraRef} defaultSettings={{ zoomLevel: 15.5 }} />
-                  {pickupPins.map((student) => (
-                    <PointAnnotation
-                      key={student.id}
-                      id={`pickup-${student.id}`}
-                      coordinate={[student.pickupLng, student.pickupLat]}
-                    >
-                      <View style={styles.pickupPin}>
-                        <Text style={styles.pickupPinText}>
-                          {student.name[0]?.toUpperCase()}
-                        </Text>
-                      </View>
-                    </PointAnnotation>
-                  ))}
-                </MapView>
-              </View>
-            )}
+      >
+        {pickupPins.length > 0 && (
+          <View style={styles.map}>
+            <MapView
+              style={StyleSheet.absoluteFill}
+              styleURL={StyleURL.Street}
+              scrollEnabled
+              zoomEnabled
+              pitchEnabled={false}
+              attributionEnabled={false}
+              logoEnabled={false}
+            >
+              <Camera ref={cameraRef} defaultSettings={{ zoomLevel: 16.5 }} />
+              {pickupPins.map((pin) => (
+                <PointAnnotation key={pin.id} id={`pin-${pin.id}`} coordinate={[pin.lng, pin.lat]}>
+                  <View style={styles.pickupPin}>
+                    <Text style={styles.pickupPinText}>{pin.label}</Text>
+                  </View>
+                </PointAnnotation>
+              ))}
+            </MapView>
+          </View>
+        )}
 
-            <View style={styles.stopCard}>
-              <Text style={styles.stopEyebrow}>Current stop</Text>
-              <Text style={styles.stopName} numberOfLines={1}>
-                {currentStop?.name}
+        <View style={styles.stopCard}>
+          <Text style={styles.stopEyebrow}>
+            {isMorningSchoolWait ? 'Final stop' : 'Current stop'}
+          </Text>
+          <Text style={styles.stopName} numberOfLines={1}>
+            {currentStop?.name}
+          </Text>
+          <View style={styles.stopMetaRow}>
+            <View style={styles.stopMetaPill}>
+              <Text style={styles.stopMetaPillText}>
+                Stop {currentStopIndex + 1} of {sortedStops.length}
               </Text>
-              <View style={styles.stopMetaRow}>
-                <View style={styles.stopMetaPill}>
-                  <Text style={styles.stopMetaPillText}>
-                    Stop {currentStopIndex + 1} of {sortedStops.length}
+            </View>
+            {!isMorningSchoolWait && (
+              <Text style={styles.stopMetaCount}>
+                {markedCount}/{totalAtStop} marked
+              </Text>
+            )}
+          </View>
+        </View>
+
+        {isMorningSchoolWait ? (
+          <View style={styles.schoolWaitCard}>
+            <View style={styles.schoolWaitIconRing}>
+              <BusFrontIcon size={28} color={color.ink} />
+            </View>
+            <Text style={styles.schoolWaitTitle}>
+              {nearSchool ? "You're back at school" : 'Heading to school'}
+            </Text>
+            <Text style={styles.schoolWaitSub}>
+              {nearSchool
+                ? 'Tap END TRIP below to notify parents their children are in school.'
+                : `All students are accounted for. End the trip once you're back at ${schoolName?.trim() || 'the school'}.`}
+            </Text>
+            <View style={styles.schoolWaitStatRow}>
+              <View style={styles.schoolWaitStat}>
+                <Text style={styles.schoolWaitStatValue}>{boardedCount}</Text>
+                <Text style={styles.schoolWaitStatLabel}>On board</Text>
+              </View>
+              <View style={styles.schoolWaitStatDivider} />
+              <View style={styles.schoolWaitStat}>
+                <Text
+                  style={[
+                    styles.schoolWaitStatValue,
+                    absentCount > 0 && styles.statValueRed,
+                  ]}
+                >
+                  {absentCount}
+                </Text>
+                <Text style={styles.schoolWaitStatLabel}>Absent</Text>
+              </View>
+            </View>
+          </View>
+        ) : activeStudent ? (
+          <View style={styles.activeCard}>
+            <Text style={styles.sectionLabel}>
+              {isBoardStop ? 'Board' : 'Drop off'} · {markedCount}/{totalAtStop} here
+            </Text>
+            <View style={styles.activeCardPhotoWrap}>
+              {activeStudent.photoUrl ? (
+                <Image source={{ uri: activeStudent.photoUrl }} style={styles.activeCardPhoto} />
+              ) : (
+                <View style={[styles.activeCardPhoto, styles.activeCardPhotoFallback]}>
+                  <Text style={styles.activeCardPhotoInitials}>
+                    {getInitials(activeStudent.name)}
                   </Text>
                 </View>
-                <Text style={styles.stopMetaCount}>
-                  {markedCount}/{totalAtStop} marked
-                </Text>
-              </View>
-              <View style={styles.progressTrack}>
-                <View style={[styles.progressFill, { width: `${progressPct}%` }]} />
+              )}
+              <View style={styles.gradeBadge}>
+                <Text style={styles.gradeBadgeText}>{activeStudent.className}</Text>
               </View>
             </View>
 
-            <Text style={styles.sectionLabel}>
-              {isBoardStop ? 'Board' : 'Drop off'} · {totalAtStop} student
-              {totalAtStop === 1 ? '' : 's'}
+            <Text style={styles.activeCardName}>{activeStudent.name}</Text>
+            <Text style={styles.activeCardSub}>
+              {isSchoolPhase && activeStudent.stopId && stopNameById.get(activeStudent.stopId)
+                ? stopNameById.get(activeStudent.stopId)
+                : `${routeName} · Stop #${currentStopIndex + 1}`}
             </Text>
-          </View>
-        }
-        ListEmptyComponent={
-          <Text style={styles.emptyText}>No students at this stop.</Text>
-        }
-        renderItem={({ item }: { item: AttendanceStudent }) => {
-          const status = attendanceMap[item.id];
-          // A boarded student still needs marking at a drop stop.
-          const canMark =
-            !status || (status === 'BOARDED' && !isBoardStop);
-          return (
+
             <Pressable
-              style={({ pressed }) => [
-                styles.studentCard,
-                pressed && canMark && styles.studentCardPressed,
-              ]}
-              onPress={() => {
-                if (canMark) setSheetStudentId(item.id);
-              }}
-              disabled={!canMark}
+              style={({ pressed }) => [styles.activePrimary, pressed && styles.pressed]}
+              onPress={() =>
+                markStudent(activeStudent.id, isBoardStop ? 'BOARDED' : 'DROPPED_OFF')
+              }
+              disabled={!!isSubmitting[activeStudent.id]}
             >
-              {item.photoUrl ? (
-                <Image source={{ uri: item.photoUrl }} style={styles.avatarImage} />
+              {isSubmitting[activeStudent.id] ? (
+                <ActivityIndicator color={color.white} />
               ) : (
-                <View style={styles.avatarPlaceholder}>
-                  <Text style={styles.avatarInitials}>{getInitials(item.name)}</Text>
-                </View>
+                <>
+                  <CheckIcon size={20} color={color.white} />
+                  <Text style={styles.activePrimaryText}>
+                    {isBoardStop ? 'BOARDED' : 'DROPPED OFF'}
+                  </Text>
+                </>
               )}
-              <View style={styles.studentInfo}>
-                <Text style={styles.studentName} numberOfLines={1}>
-                  {item.name}
-                </Text>
-                <Text style={styles.studentClass} numberOfLines={1}>
-                  {isSchoolPhase && item.stopId && stopNameById.get(item.stopId)
-                    ? `${item.className} · ${stopNameById.get(item.stopId)}`
-                    : item.className}
-                </Text>
-              </View>
-              {canMark ? (
-                <View style={styles.markCue}>
-                  <Text style={styles.markCueText}>
-                    {status === 'BOARDED' ? 'Drop off' : 'Mark'}
-                  </Text>
-                </View>
-              ) : status ? (
-                <View style={[styles.statusChip, { backgroundColor: STATUS_BG[status] }]}>
-                  <Text style={[styles.statusChipText, { color: STATUS_COLOR[status] }]}>
-                    {STATUS_LABEL[status]}
-                  </Text>
-                </View>
-              ) : null}
             </Pressable>
-          );
-        }}
-      />
+            {/* A student already on the bus can't be absent — only offer it
+                while they still haven't boarded. */}
+            {attendanceMap[activeStudent.id] !== 'BOARDED' && (
+              <Pressable
+                style={({ pressed }) => [styles.activeSecondary, pressed && styles.pressed]}
+                onPress={() => markStudent(activeStudent.id, 'ABSENT')}
+                disabled={!!isSubmitting[activeStudent.id]}
+              >
+                <Text style={styles.activeSecondaryText}>ABSENT</Text>
+              </Pressable>
+            )}
+          </View>
+        ) : (
+          <View style={styles.stopDoneCard}>
+            <CheckIcon size={20} color={color.routeGreen} />
+            <Text style={styles.stopDoneText}>Stop complete</Text>
+          </View>
+        )}
+      </ScrollView>
 
       <View style={[styles.footer, { paddingBottom: space.lg + insets.bottom }]}>
         {isLastStop ? (
-          <Pressable
-            style={({ pressed }) => [
-              styles.footerButton,
-              styles.endTripButton,
-              !canEndTrip && styles.footerButtonDisabled,
-              pressed && canEndTrip && styles.ctaPressed,
-            ]}
-            onPress={() => setShowEndConfirm(true)}
-            disabled={!canEndTrip || isEndingTrip}
-            accessibilityRole="button"
-            accessibilityLabel="End trip"
-          >
-            <BusFrontIcon size={24} color={color.white} />
-            <Text style={styles.footerButtonText}>END TRIP</Text>
-          </Pressable>
+          <View style={styles.endTripWrap}>
+            <View style={[styles.endTripHalo, !endTripReady && styles.endTripHaloDim]} />
+            <Pressable
+              style={({ pressed }) => [
+                styles.endTripCircle,
+                !endTripReady && styles.endTripCircleDisabled,
+                pressed && endTripReady && styles.ctaPressed,
+              ]}
+              onPress={() => setShowEndConfirm(true)}
+              disabled={!endTripReady || isEndingTrip}
+              accessibilityRole="button"
+              accessibilityLabel="End trip"
+            >
+              <BusFrontIcon size={30} color={endTripReady ? color.white : color.sub} />
+              <Text
+                style={[
+                  styles.endTripCircleText,
+                  !endTripReady && styles.endTripCircleTextDim,
+                ]}
+              >
+                {isMorningSchoolWait && !nearSchool ? 'ARRIVING…' : 'END TRIP'}
+              </Text>
+            </Pressable>
+          </View>
         ) : (
-          <Pressable
-            style={({ pressed }) => [
-              styles.footerButton,
-              styles.nextStopButton,
-              !allCurrentMarked && styles.footerButtonDisabled,
-              pressed && allCurrentMarked && styles.ctaPressed,
-            ]}
-            onPress={handleNextStop}
-            disabled={!allCurrentMarked}
-          >
-            <Text style={styles.footerButtonTextDark}>NEXT STOP</Text>
-          </Pressable>
+          <View style={styles.nextStopPreview}>
+            <Text style={styles.nextStopPreviewLabel}>Next stop</Text>
+            <Text style={styles.nextStopPreviewName} numberOfLines={1}>
+              {nextStop?.name ?? '—'}
+            </Text>
+          </View>
         )}
       </View>
-
-      {/* Student sheet — tap a student to mark boarded / absent */}
-      <Modal
-        visible={!!sheetStudent}
-        transparent
-        animationType="slide"
-        onRequestClose={() => setSheetStudentId(null)}
-      >
-        <View style={styles.sheetOverlay}>
-          <Pressable style={StyleSheet.absoluteFill} onPress={() => setSheetStudentId(null)} />
-          {sheetStudent ? (
-            <View style={styles.sheet}>
-              <View style={styles.sheetGrabber} />
-              <Pressable
-                style={styles.sheetClose}
-                onPress={() => setSheetStudentId(null)}
-                accessibilityLabel="Close"
-              >
-                <CloseIcon size={16} color={color.sub} />
-              </Pressable>
-
-              <View style={styles.sheetPhotoWrap}>
-                {sheetStudent.photoUrl ? (
-                  <Image source={{ uri: sheetStudent.photoUrl }} style={styles.sheetPhoto} />
-                ) : (
-                  <View style={[styles.sheetPhoto, styles.sheetPhotoFallback]}>
-                    <Text style={styles.sheetPhotoInitials}>
-                      {getInitials(sheetStudent.name)}
-                    </Text>
-                  </View>
-                )}
-                <View style={styles.gradeBadge}>
-                  <Text style={styles.gradeBadgeText}>{sheetStudent.className}</Text>
-                </View>
-              </View>
-
-              <Text style={styles.sheetName}>{sheetStudent.name}</Text>
-              <Text style={styles.sheetSub}>
-                {routeName} · Stop #{currentStopIndex + 1}
-              </Text>
-
-              <View style={styles.sheetStatRow}>
-                <View style={styles.sheetStat}>
-                  <Text style={styles.sheetStatLabel}>Stop</Text>
-                  <Text style={styles.sheetStatValue} numberOfLines={1}>
-                    {(sheetStudent.stopId && stopNameById.get(sheetStudent.stopId)) ||
-                      currentStop?.name}
-                  </Text>
-                </View>
-                <View style={styles.sheetStat}>
-                  <Text style={styles.sheetStatLabel}>Class</Text>
-                  <Text style={styles.sheetStatValue}>{sheetStudent.className}</Text>
-                </View>
-              </View>
-
-              <Pressable
-                style={({ pressed }) => [styles.sheetPrimary, pressed && styles.pressed]}
-                onPress={() =>
-                  markFromSheet(sheetStudent.id, isBoardStop ? 'BOARDED' : 'DROPPED_OFF')
-                }
-                disabled={!!isSubmitting[sheetStudent.id]}
-              >
-                {isSubmitting[sheetStudent.id] ? (
-                  <ActivityIndicator color={color.white} />
-                ) : (
-                  <>
-                    <CheckIcon size={20} color={color.white} />
-                    <Text style={styles.sheetPrimaryText}>
-                      {isBoardStop ? 'BOARDED' : 'DROPPED OFF'}
-                    </Text>
-                  </>
-                )}
-              </Pressable>
-              {/* A student already on the bus can't be absent — only offer it
-                  while they still haven't boarded. */}
-              {attendanceMap[sheetStudent.id] !== 'BOARDED' && (
-                <Pressable
-                  style={({ pressed }) => [styles.sheetSecondary, pressed && styles.pressed]}
-                  onPress={() => markFromSheet(sheetStudent.id, 'ABSENT')}
-                  disabled={!!isSubmitting[sheetStudent.id]}
-                >
-                  <Text style={styles.sheetSecondaryText}>ABSENT</Text>
-                </Pressable>
-              )}
-            </View>
-          ) : null}
-        </View>
-      </Modal>
 
       {/* End-trip confirmation — a designed summary sheet, not a bare alert */}
       <Modal
@@ -779,7 +756,7 @@ export default function AttendanceScreen({ navigation, route }: Props) {
               </View>
               <View style={styles.endStatDivider} />
               <View style={styles.endStat}>
-                <Text style={[styles.endStatValue, absentCount > 0 && styles.endStatValueRed]}>
+                <Text style={[styles.endStatValue, absentCount > 0 && styles.statValueRed]}>
                   {absentCount}
                 </Text>
                 <Text style={styles.endStatLabel}>Absent</Text>
@@ -908,7 +885,7 @@ const styles = StyleSheet.create({
   pressed: {
     opacity: 0.85,
   },
-  // List
+  // Body
   listContent: {
     paddingHorizontal: space.lg,
     paddingTop: space.lg,
@@ -985,212 +962,61 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     color: color.sub,
   },
-  progressTrack: {
-    height: 6,
-    borderRadius: 3,
-    backgroundColor: color.canvas,
-    marginTop: space.md,
-    overflow: 'hidden',
-  },
-  progressFill: {
-    height: 6,
-    borderRadius: 3,
-    backgroundColor: color.danfo,
-  },
   sectionLabel: {
     fontSize: 12,
     fontWeight: '700',
     letterSpacing: 1,
     textTransform: 'uppercase',
     color: color.sub,
-    marginBottom: space.sm,
-    marginLeft: 2,
+    marginBottom: space.md,
+    alignSelf: 'flex-start',
   },
-  emptyText: {
-    fontSize: 14,
-    color: color.sub,
-    textAlign: 'center',
-    paddingVertical: space.xl,
-  },
-  // Student row
-  studentCard: {
+  // Stop-complete transition card (between auto-advances)
+  stopDoneCard: {
     flexDirection: 'row',
     alignItems: 'center',
+    justifyContent: 'center',
+    gap: space.sm,
     backgroundColor: color.surface,
     borderRadius: radius.lg,
-    padding: space.md,
-    marginBottom: space.sm + 2,
-    shadowColor: '#000',
-    shadowOpacity: 0.05,
-    shadowOffset: { width: 0, height: 2 },
-    shadowRadius: 6,
-    elevation: 1,
+    paddingVertical: space.xxl,
   },
-  studentCardPressed: {
-    opacity: 0.9,
-    transform: [{ scale: 0.99 }],
-  },
-  avatarImage: {
-    width: 52,
-    height: 52,
-    borderRadius: 26,
-    backgroundColor: color.canvas,
-  },
-  avatarPlaceholder: {
-    width: 52,
-    height: 52,
-    borderRadius: 26,
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: color.danfo,
-  },
-  avatarInitials: {
-    color: color.ink,
-    fontWeight: '800',
-    fontSize: 17,
-  },
-  studentInfo: {
-    flex: 1,
-    marginLeft: space.md,
-  },
-  studentName: {
-    fontSize: 17,
+  stopDoneText: {
+    fontSize: 15,
     fontWeight: '700',
-    color: color.ink,
-  },
-  studentClass: {
-    fontSize: 13,
     color: color.sub,
-    marginTop: 1,
   },
-  statusChip: {
-    paddingHorizontal: space.md,
-    paddingVertical: 7,
-    borderRadius: radius.pill,
-  },
-  statusChipText: {
-    fontWeight: '800',
-    fontSize: 12,
-  },
-  markCue: {
-    backgroundColor: color.danfo,
-    paddingHorizontal: space.lg,
-    paddingVertical: 9,
-    borderRadius: radius.pill,
-  },
-  markCueText: {
-    color: color.ink,
-    fontWeight: '800',
-    fontSize: 13,
-    letterSpacing: 0.3,
-  },
-  // Footer
-  footer: {
-    paddingHorizontal: space.lg,
-    paddingTop: space.lg,
+  // Active student card — the one card shown at a time
+  activeCard: {
     backgroundColor: color.surface,
-    borderTopWidth: 1,
-    borderTopColor: color.hairline,
-  },
-  // Footer actions carry the same visual weight as the circular Start button:
-  // pill shape, thick white ring, deep colored shadow.
-  footerButton: {
-    flexDirection: 'row',
-    gap: space.sm + 2,
-    paddingVertical: space.lg + 2,
-    borderRadius: radius.pill,
+    borderRadius: radius.lg + 6,
+    padding: space.xl,
     alignItems: 'center',
-    justifyContent: 'center',
-    borderWidth: 4,
-    borderColor: color.white,
+    shadowColor: '#000',
+    shadowOpacity: 0.06,
+    shadowOffset: { width: 0, height: 2 },
+    shadowRadius: 8,
+    elevation: 2,
   },
-  footerButtonDisabled: {
-    opacity: 0.4,
-  },
-  nextStopButton: {
-    backgroundColor: color.danfo,
-    shadowColor: color.danfoDim,
-    shadowOpacity: 0.45,
-    shadowOffset: { width: 0, height: 8 },
-    shadowRadius: 16,
-    elevation: 8,
-  },
-  endTripButton: {
-    backgroundColor: color.stopRed,
-    shadowColor: color.stopRed,
-    shadowOpacity: 0.4,
-    shadowOffset: { width: 0, height: 8 },
-    shadowRadius: 16,
-    elevation: 8,
-  },
-  ctaPressed: {
-    transform: [{ scale: 0.97 }],
-  },
-  footerButtonText: {
-    color: color.white,
-    fontSize: 17,
-    fontWeight: '800',
-    letterSpacing: 1,
-  },
-  footerButtonTextDark: {
-    color: color.ink,
-    fontSize: 17,
-    fontWeight: '800',
-    letterSpacing: 1,
-  },
-  // Student sheet
-  sheetOverlay: {
-    flex: 1,
-    backgroundColor: 'rgba(14,27,46,0.5)',
-    justifyContent: 'flex-end',
-  },
-  sheet: {
-    backgroundColor: color.surface,
-    borderTopLeftRadius: 28,
-    borderTopRightRadius: 28,
-    paddingHorizontal: space.xl,
-    paddingTop: space.md,
-    paddingBottom: space.xxxl,
+  activeCardPhotoWrap: {
     alignItems: 'center',
   },
-  sheetGrabber: {
-    width: 40,
-    height: 4,
-    borderRadius: 2,
-    backgroundColor: color.hairline,
-    marginBottom: space.sm,
-  },
-  sheetClose: {
-    position: 'absolute',
-    right: space.lg,
-    top: space.lg,
-    width: 32,
-    height: 32,
-    borderRadius: 16,
-    backgroundColor: color.canvas,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  sheetPhotoWrap: {
-    alignItems: 'center',
-    marginTop: space.sm,
-  },
-  sheetPhoto: {
-    width: 116,
-    height: 116,
-    borderRadius: 58,
+  activeCardPhoto: {
+    width: 100,
+    height: 100,
+    borderRadius: 50,
     borderWidth: 4,
     borderColor: color.danfo,
     backgroundColor: color.canvas,
   },
-  sheetPhotoFallback: {
+  activeCardPhotoFallback: {
     alignItems: 'center',
     justifyContent: 'center',
   },
-  sheetPhotoInitials: {
+  activeCardPhotoInitials: {
     color: color.ink,
     fontWeight: '800',
-    fontSize: 36,
+    fontSize: 32,
   },
   gradeBadge: {
     marginTop: -14,
@@ -1206,47 +1032,21 @@ const styles = StyleSheet.create({
     fontWeight: '800',
     fontSize: 12,
   },
-  sheetName: {
-    fontSize: 26,
+  activeCardName: {
+    fontSize: 24,
     fontWeight: '800',
     color: color.ink,
     marginTop: space.md,
     textAlign: 'center',
   },
-  sheetSub: {
+  activeCardSub: {
     fontSize: 14,
     fontWeight: '500',
     color: color.sub,
     marginTop: 2,
+    textAlign: 'center',
   },
-  sheetStatRow: {
-    flexDirection: 'row',
-    gap: space.md,
-    alignSelf: 'stretch',
-    marginTop: space.xl,
-  },
-  sheetStat: {
-    flex: 1,
-    backgroundColor: color.canvas,
-    borderRadius: radius.lg,
-    paddingVertical: space.lg,
-    paddingHorizontal: space.md,
-    alignItems: 'center',
-  },
-  sheetStatLabel: {
-    fontSize: 11,
-    fontWeight: '700',
-    letterSpacing: 1,
-    textTransform: 'uppercase',
-    color: color.sub,
-    marginBottom: 4,
-  },
-  sheetStatValue: {
-    fontSize: 16,
-    fontWeight: '800',
-    color: color.ink,
-  },
-  sheetPrimary: {
+  activePrimary: {
     alignSelf: 'stretch',
     flexDirection: 'row',
     alignItems: 'center',
@@ -1257,13 +1057,13 @@ const styles = StyleSheet.create({
     paddingVertical: 18,
     marginTop: space.xl,
   },
-  sheetPrimaryText: {
+  activePrimaryText: {
     color: color.white,
     fontSize: 17,
     fontWeight: '800',
     letterSpacing: 0.5,
   },
-  sheetSecondary: {
+  activeSecondary: {
     alignSelf: 'stretch',
     alignItems: 'center',
     justifyContent: 'center',
@@ -1272,13 +1072,170 @@ const styles = StyleSheet.create({
     paddingVertical: 16,
     marginTop: space.sm + 2,
   },
-  sheetSecondaryText: {
+  activeSecondaryText: {
     color: color.ink,
     fontSize: 16,
     fontWeight: '800',
     letterSpacing: 0.5,
   },
+  // Morning "heading to / back at school" card
+  schoolWaitCard: {
+    backgroundColor: color.surface,
+    borderRadius: radius.lg + 6,
+    padding: space.xl,
+    alignItems: 'center',
+    shadowColor: '#000',
+    shadowOpacity: 0.06,
+    shadowOffset: { width: 0, height: 2 },
+    shadowRadius: 8,
+    elevation: 2,
+  },
+  schoolWaitIconRing: {
+    width: 64,
+    height: 64,
+    borderRadius: 32,
+    backgroundColor: color.danfoSoft,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  schoolWaitTitle: {
+    fontSize: 20,
+    fontWeight: '800',
+    color: color.ink,
+    marginTop: space.lg,
+    textAlign: 'center',
+  },
+  schoolWaitSub: {
+    fontSize: 14,
+    color: color.sub,
+    textAlign: 'center',
+    marginTop: space.xs,
+    lineHeight: 20,
+  },
+  schoolWaitStatRow: {
+    flexDirection: 'row',
+    alignSelf: 'stretch',
+    backgroundColor: color.canvas,
+    borderRadius: radius.lg,
+    paddingVertical: space.lg,
+    marginTop: space.xl,
+  },
+  schoolWaitStat: {
+    flex: 1,
+    alignItems: 'center',
+  },
+  schoolWaitStatDivider: {
+    width: 1,
+    backgroundColor: color.hairline,
+  },
+  schoolWaitStatValue: {
+    fontSize: 24,
+    fontWeight: '800',
+    color: color.ink,
+    fontVariant: ['tabular-nums'],
+  },
+  schoolWaitStatLabel: {
+    fontSize: 11,
+    fontWeight: '700',
+    letterSpacing: 0.8,
+    textTransform: 'uppercase',
+    color: color.sub,
+    marginTop: 3,
+  },
+  statValueRed: {
+    color: color.stopRed,
+  },
+  // Footer
+  footer: {
+    paddingHorizontal: space.lg,
+    paddingTop: space.lg,
+    backgroundColor: color.surface,
+    borderTopWidth: 1,
+    borderTopColor: color.hairline,
+  },
+  // Next-stop preview — replaces the old tappable "NEXT STOP" button now
+  // that advancing is automatic; it's informational only.
+  nextStopPreview: {
+    alignItems: 'center',
+    paddingVertical: space.md,
+  },
+  nextStopPreviewLabel: {
+    fontSize: 11,
+    fontWeight: '700',
+    letterSpacing: 1.2,
+    textTransform: 'uppercase',
+    color: color.sub,
+  },
+  nextStopPreviewName: {
+    fontSize: 20,
+    fontWeight: '800',
+    color: color.ink,
+    marginTop: 2,
+  },
+  ctaPressed: {
+    transform: [{ scale: 0.97 }],
+  },
+  // End-trip circular CTA — same visual weight as the Start button on Today.
+  endTripWrap: {
+    alignSelf: 'center',
+    alignItems: 'center',
+    justifyContent: 'center',
+    height: 176,
+    marginVertical: space.sm,
+  },
+  endTripHalo: {
+    position: 'absolute',
+    width: 176,
+    height: 176,
+    borderRadius: 88,
+    backgroundColor: color.stopRedBg,
+  },
+  endTripHaloDim: {
+    backgroundColor: color.canvas,
+  },
+  endTripCircle: {
+    width: 136,
+    height: 136,
+    borderRadius: 68,
+    backgroundColor: color.stopRed,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 6,
+    borderColor: color.white,
+    shadowColor: color.stopRed,
+    shadowOpacity: 0.4,
+    shadowOffset: { width: 0, height: 8 },
+    shadowRadius: 16,
+    elevation: 8,
+  },
+  endTripCircleDisabled: {
+    backgroundColor: color.hairline,
+    shadowOpacity: 0,
+    elevation: 0,
+  },
+  endTripCircleText: {
+    color: color.white,
+    fontSize: 14,
+    fontWeight: '800',
+    letterSpacing: 0.8,
+    marginTop: space.xs,
+  },
+  endTripCircleTextDim: {
+    color: color.sub,
+  },
   // End-trip confirmation sheet
+  sheetOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(14,27,46,0.5)',
+    justifyContent: 'flex-end',
+  },
+  sheetGrabber: {
+    width: 40,
+    height: 4,
+    borderRadius: 2,
+    backgroundColor: color.hairline,
+    marginBottom: space.sm,
+  },
   endSheet: {
     backgroundColor: color.surface,
     borderTopLeftRadius: 28,
@@ -1352,9 +1309,6 @@ const styles = StyleSheet.create({
     fontWeight: '800',
     color: color.ink,
     fontVariant: ['tabular-nums'],
-  },
-  endStatValueRed: {
-    color: color.stopRed,
   },
   endStatLabel: {
     fontSize: 11,

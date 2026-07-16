@@ -545,16 +545,23 @@ export default function TodayScreen({ navigation }: Props) {
               navigation.navigate('PickupOrder', {
                 routeId: state.routeId,
                 routeName: state.routeName,
+                routeType: state.routeType,
               })
             }
             accessibilityRole="button"
-            accessibilityLabel="Arrange pickup order"
+            accessibilityLabel={
+              state.runDirection === 'AFTERNOON'
+                ? 'Arrange drop-off order'
+                : 'Arrange pickup order'
+            }
           >
             <View style={styles.locIcon}>
               <RouteIcon size={20} color={color.ink} />
             </View>
             <View style={styles.locMeta}>
-              <Text style={styles.locLabel}>Pickup order</Text>
+              <Text style={styles.locLabel}>
+                {state.runDirection === 'AFTERNOON' ? 'Drop-off order' : 'Pickup order'}
+              </Text>
               {state.unarrangedCount > 0 ? (
                 <Text style={styles.locValueAttention}>
                   {state.unarrangedCount} new student{state.unarrangedCount === 1 ? '' : 's'} to place

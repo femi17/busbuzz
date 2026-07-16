@@ -37,8 +37,12 @@ function getInitials(name: string): string {
 // One arrangement per route: the order students are picked up along the road
 // in the morning. The afternoon run drops them off in reverse automatically.
 export default function PickupOrderScreen({ navigation, route }: Props) {
-  const { routeId, routeName } = route.params;
+  const { routeId, routeName, routeType } = route.params;
   const insets = useSafeAreaInsets();
+  // A dedicated AFTERNOON route's saved order IS the drop-off order — it's
+  // never reversed. A MORNING or BOTH route's order is the pickup order
+  // (BOTH reverses it automatically for the afternoon run).
+  const isDropoffOrder = routeType === 'AFTERNOON';
 
   const [students, setStudents] = useState<OrderStudent[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -122,13 +126,13 @@ export default function PickupOrderScreen({ navigation, route }: Props) {
 
       if (!response.ok) {
         const errJson = await response.json().catch(() => null);
-        Alert.alert('Error', errJson?.error ?? 'Failed to save pickup order.');
+        Alert.alert('Error', errJson?.error ?? 'Failed to save order.');
         return;
       }
 
       navigation.goBack();
     } catch {
-      Alert.alert('Error', 'Failed to save pickup order.');
+      Alert.alert('Error', 'Failed to save order.');
     } finally {
       setIsSaving(false);
     }
@@ -139,7 +143,9 @@ export default function PickupOrderScreen({ navigation, route }: Props) {
       <SafeAreaView edges={['top']} style={styles.headerSafe}>
         <View style={styles.header}>
           <View style={styles.headerText}>
-            <Text style={styles.headerEyebrow}>PICKUP ORDER</Text>
+            <Text style={styles.headerEyebrow}>
+              {isDropoffOrder ? 'DROP-OFF ORDER' : 'PICKUP ORDER'}
+            </Text>
             <Text style={styles.headerTitle} numberOfLines={1}>
               {routeName}
             </Text>
@@ -176,9 +182,9 @@ export default function PickupOrderScreen({ navigation, route }: Props) {
           showsVerticalScrollIndicator={false}
           ListHeaderComponent={
             <Text style={styles.hint}>
-              Arrange students in the order you pick them up in the morning.
-              This is saved once — the afternoon drop-off uses the reverse
-              order automatically.
+              {isDropoffOrder
+                ? 'Arrange students in the order you drop them off in the afternoon. This is saved once and remembered for every run.'
+                : 'Arrange students in the order you pick them up in the morning. This is saved once — the afternoon drop-off uses the reverse order automatically.'}
             </Text>
           }
           renderItem={({ item, index }) => (
@@ -253,7 +259,11 @@ export default function PickupOrderScreen({ navigation, route }: Props) {
               <ActivityIndicator color={color.ink} />
             ) : (
               <Text style={styles.saveButtonText}>
-                {isDirty ? 'SAVE PICKUP ORDER' : 'ORDER SAVED'}
+                {isDirty
+                  ? isDropoffOrder
+                    ? 'SAVE DROP-OFF ORDER'
+                    : 'SAVE PICKUP ORDER'
+                  : 'ORDER SAVED'}
               </Text>
             )}
           </Pressable>
