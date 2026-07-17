@@ -124,6 +124,10 @@ export const createStudentSchema = z.object({
   medicalNotes: z.string().max(2000).optional(),
   routeId: uuidSchema.optional(),
   stopId: uuidSchema.optional(),
+  // Which leg(s) of a BOTH route this student actually rides — irrelevant
+  // (and ignored) on a dedicated MORNING/AFTERNOON route, where every rider
+  // is on that route's one leg regardless of this value.
+  tripType: z.enum(['MORNING', 'AFTERNOON', 'BOTH']).optional(),
   pickupAddress: z.string().max(500).optional(),
   // Trusted coordinates from a Google Places selection on the client — when
   // present, the server uses these directly instead of re-geocoding the

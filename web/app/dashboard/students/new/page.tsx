@@ -16,7 +16,7 @@ const newStudentFormSchema = createStudentSchema.omit({ schoolId: true, photoUrl
 
 type FormErrors = Partial<Record<'name' | 'className' | 'routeId', string>>;
 
-type RouteOption = { id: string; name: string };
+type RouteOption = { id: string; name: string; type: string };
 
 const inputClass = 'w-full rounded-[var(--radius-btn)] border border-rule px-3 py-2.5 text-sm text-ink placeholder:text-sub focus:border-amber focus:outline-none focus:ring-1 focus:ring-amber disabled:bg-canvas disabled:opacity-60 disabled:cursor-not-allowed';
 const labelClass = 'block text-sm font-medium text-ink mb-1.5';
@@ -29,6 +29,7 @@ export default function NewStudentPage() {
   const [pickupAddress, setPickupAddress] = useState('');
   const [pickupCoords, setPickupCoords] = useState<{ lat: number; lng: number } | null>(null);
   const [routeId, setRouteId] = useState('');
+  const [tripType, setTripType] = useState<'MORNING' | 'AFTERNOON' | 'BOTH'>('BOTH');
   const [routes, setRoutes] = useState<RouteOption[]>([]);
   const [errors, setErrors] = useState<FormErrors>({});
   const [formError, setFormError] = useState<string | null>(null);
@@ -41,7 +42,7 @@ export default function NewStudentPage() {
   useEffect(() => {
     async function loadRoutes() {
       const supabase = createClient();
-      const { data } = await supabase.from('routes').select('id, name').order('name');
+      const { data } = await supabase.from('routes').select('id, name, type').order('name');
       setRoutes((data ?? []) as RouteOption[]);
     }
     loadRoutes();
@@ -49,6 +50,12 @@ export default function NewStudentPage() {
 
   const studentCreated = createdStudentId !== null;
   const stepIndex = studentCreated ? 1 : 0;
+  const selectedRoute = routes.find((r) => r.id === routeId);
+  // Direction only means something on a route that runs both legs — on a
+  // dedicated MORNING/AFTERNOON route every rider is on its one leg no
+  // matter what this value says, so don't offer a choice that could
+  // silently exclude the student from their only run.
+  const showDirectionPicker = selectedRoute?.type === 'BOTH';
 
   async function handleSubmit(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
@@ -77,6 +84,7 @@ export default function NewStudentPage() {
           name: parseResult.data.name,
           className: parseResult.data.className,
           routeId: parseResult.data.routeId || undefined,
+          tripType: showDirectionPicker ? tripType : undefined,
           pickupAddress: pickupAddress.trim() || undefined,
           // Trusted coords from a Google Places selection — the server
           // geocodes server-side itself if these are absent.
@@ -201,12 +209,31 @@ export default function NewStudentPage() {
 
             <div>
               <label className={labelClass}>Route</label>
-              <select value={routeId} onChange={(e) => setRouteId(e.target.value)} className={inputClass}>
+              <select
+                value={routeId}
+                onChange={(e) => { setRouteId(e.target.value); setTripType('BOTH'); }}
+                className={inputClass}
+              >
                 <option value="">No route assigned</option>
                 {routes.map((r) => <option key={r.id} value={r.id}>{r.name}</option>)}
               </select>
               {errors.routeId && <p className="text-xs text-red mt-1">{errors.routeId}</p>}
             </div>
+
+            {showDirectionPicker && (
+              <div>
+                <label className={labelClass}>Bus Direction</label>
+                <select
+                  value={tripType}
+                  onChange={(e) => setTripType(e.target.value as 'MORNING' | 'AFTERNOON' | 'BOTH')}
+                  className={inputClass}
+                >
+                  <option value="MORNING">Morning only</option>
+                  <option value="AFTERNOON">Afternoon only</option>
+                  <option value="BOTH">Morning &amp; Afternoon</option>
+                </select>
+              </div>
+            )}
 
             <div className="flex justify-end gap-3 mt-2">
               <Link href="/dashboard/students" className="rounded-[var(--radius-btn)] border border-rule px-4 py-2.5 text-sm font-medium text-sub hover:bg-canvas transition-colors duration-150 active:scale-95">

@@ -13,6 +13,7 @@ type StudentDetail = {
   photo_url: string | null;
   medical_notes: string | null;
   created_at: string;
+  trip_type: string;
   route: { id: string; name: string; type: string } | { id: string; name: string; type: string }[] | null;
   stop: { name: string; latitude: number; longitude: number } | { name: string; latitude: number; longitude: number }[] | null;
   student_parents: { parent: { id: string; name: string; phone: string | null } | { id: string; name: string; phone: string | null }[] | null }[];
@@ -71,7 +72,19 @@ export default async function StudentDetailPage({
     .map((sp) => getParent(sp.parent))
     .filter(Boolean) as { id: string; name: string; phone: string | null }[];
 
-  const routeTypeLabel = route?.type === 'MORNING' ? 'AM' : route?.type === 'AFTERNOON' ? 'PM' : route?.type === 'BOTH' ? 'AM + PM' : null;
+  // A route's own type describes the runs it operates. On a dedicated
+  // MORNING/AFTERNOON route every rider is on that one leg regardless of
+  // their trip_type; only on a BOTH route does the student's own trip_type
+  // (set per-child, defaults to BOTH) determine which leg(s) they actually
+  // ride — so the badge must reflect that, not just the route's schedule.
+  const effectiveDirection =
+    route?.type === 'MORNING' || route?.type === 'AFTERNOON'
+      ? route.type
+      : route?.type === 'BOTH'
+      ? student.trip_type || 'BOTH'
+      : null;
+  const routeTypeLabel =
+    effectiveDirection === 'MORNING' ? 'AM' : effectiveDirection === 'AFTERNOON' ? 'PM' : effectiveDirection === 'BOTH' ? 'AM + PM' : null;
   const createdDate = new Date(student.created_at).toLocaleDateString('en-GB', {
     day: 'numeric', month: 'long', year: 'numeric',
   });
@@ -128,7 +141,7 @@ export default async function StudentDetailPage({
             <div className="flex flex-col gap-1">
               <p className="text-[15px] font-semibold text-ink">{route.name}</p>
               {routeTypeLabel && (
-                <span className={`self-start inline-flex rounded-[var(--radius-chip)] px-2.5 py-0.5 text-[11px] font-semibold ${route.type === 'MORNING' ? 'bg-amber-light text-amber-dark' : route.type === 'AFTERNOON' ? 'bg-navy-light text-navy' : 'bg-canvas text-ink'}`}>
+                <span className={`self-start inline-flex rounded-[var(--radius-chip)] px-2.5 py-0.5 text-[11px] font-semibold ${effectiveDirection === 'MORNING' ? 'bg-amber-light text-amber-dark' : effectiveDirection === 'AFTERNOON' ? 'bg-navy-light text-navy' : 'bg-canvas text-ink'}`}>
                   {routeTypeLabel}
                 </span>
               )}

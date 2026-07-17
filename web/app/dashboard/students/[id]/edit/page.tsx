@@ -70,6 +70,11 @@ export default function EditStudentPage() {
   const sortedStops = selectedRoute
     ? [...selectedRoute.stops].sort((a, b) => a.sequence - b.sequence)
     : [];
+  // Direction only means something on a route that runs both legs — on a
+  // dedicated MORNING/AFTERNOON route every rider is on its one leg no
+  // matter what this value says, so don't offer a choice that could
+  // silently exclude the student from their only run.
+  const showDirectionPicker = selectedRoute?.type === 'BOTH';
 
   async function handleSubmit(e: FormEvent) {
     e.preventDefault();
@@ -92,7 +97,7 @@ export default function EditStudentPage() {
       if (routeId) {
         body.routeId = routeId;
         if (stopId) body.stopId = stopId;
-        body.tripType = tripType;
+        body.tripType = showDirectionPicker ? tripType : 'BOTH';
       } else {
         body.routeId = null;
         body.stopId = null;
@@ -123,7 +128,7 @@ export default function EditStudentPage() {
         pickup_address: pickupAddress.trim() || null,
         pickup_lat: pickupAddress.trim() ? coords?.lat ?? null : null,
         pickup_lng: pickupAddress.trim() ? coords?.lng ?? null : null,
-        trip_type: routeId ? tripType : 'BOTH',
+        trip_type: showDirectionPicker ? tripType : 'BOTH',
       }).eq('id', id);
 
       const res = await fetch(
@@ -233,7 +238,7 @@ export default function EditStudentPage() {
             </select>
           </div>
 
-          {routeId && (
+          {showDirectionPicker && (
             <div>
               <label className={labelClass}>Bus Direction</label>
               <select

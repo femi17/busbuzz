@@ -338,6 +338,7 @@ async function handleCreate(
       class_name: validated.className,
       route_id: validated.routeId ?? null,
       stop_id: stopId,
+      trip_type: validated.routeId && validated.tripType ? validated.tripType : 'BOTH',
       medical_notes: validated.medicalNotes ?? null,
       pickup_address: validated.pickupAddress ?? null,
       pickup_lat: pickupLat,
