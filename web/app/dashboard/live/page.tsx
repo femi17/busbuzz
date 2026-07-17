@@ -460,7 +460,7 @@ export default function LiveMapPage() {
   }, []);
 
   return (
-    <div className="-mx-4 -mb-4 -mt-[70px] lg:-m-6 flex h-[calc(100vh-70px)] lg:h-[calc(100vh-4rem)] flex-col">
+    <div className="-mx-4 -mb-4 lg:-m-6 flex h-[calc(100vh-70px)] lg:h-[calc(100vh-4rem)] flex-col">
       {/* Page header */}
       <div className="shrink-0 border-b border-navy/10 bg-white px-4 py-4 lg:px-6 lg:py-5">
         <DashboardHeader title="Live Map" subtitle="Track every active bus in real time" noMargin />

@@ -307,7 +307,7 @@ export function TripReplayModal({
       className="fixed inset-0 z-[100] flex items-center justify-center bg-black/70 backdrop-blur-sm p-3 sm:p-6"
       onMouseDown={(e) => { if (e.target === e.currentTarget) onClose(); }}
     >
-      <div className="relative flex w-full max-w-5xl flex-col overflow-hidden rounded-[20px] bg-night shadow-[0_40px_100px_-30px_rgba(0,0,0,0.85)] max-h-[92vh]">
+      <div className="relative flex w-full max-w-5xl flex-col overflow-hidden rounded-[20px] bg-night shadow-[0_40px_100px_-30px_rgba(0,0,0,0.85)] h-[88vh] max-h-[820px]">
         <div aria-hidden className="h-1.5 hazard-stripe shrink-0" />
 
         {/* Header */}

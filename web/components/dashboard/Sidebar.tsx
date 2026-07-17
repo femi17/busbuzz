@@ -32,10 +32,12 @@ type NavItem = {
 
 export function Sidebar({
   schoolName,
+  schoolLogoUrl,
   adminName,
   userRole,
 }: {
   schoolName: string;
+  schoolLogoUrl?: string | null;
   adminName: string;
   userRole: string;
 }) {
@@ -112,9 +114,19 @@ export function Sidebar({
             Bus<span className="text-amber">Buzz</span>
           </span>
         </div>
-        <p className="font-mono text-[10px] font-semibold text-white/35 uppercase tracking-[0.16em] mt-2.5 truncate">
-          {schoolName}
-        </p>
+        <div className="flex items-center gap-2 mt-2.5">
+          {schoolLogoUrl && (
+            /* eslint-disable-next-line @next/next/no-img-element -- external, school-supplied URL */
+            <img
+              src={schoolLogoUrl}
+              alt=""
+              className="h-5 w-5 shrink-0 rounded-[4px] object-cover border border-white/10"
+            />
+          )}
+          <p className="font-mono text-[10px] font-semibold text-white/35 uppercase tracking-[0.16em] truncate">
+            {schoolName}
+          </p>
+        </div>
       </div>
 
       {/* Nav items */}
