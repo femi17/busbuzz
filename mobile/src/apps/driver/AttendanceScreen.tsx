@@ -1,6 +1,22 @@
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
-import { Camera, MapView, PointAnnotation, StyleURL } from '@rnmapbox/maps';
-import { useEffect, useMemo, useRef, useState, type ElementRef } from 'react';
+import {
+  Camera,
+  LineLayer,
+  MapView,
+  MarkerView,
+  PointAnnotation,
+  ShapeSource as ShapeSourceComponent,
+  StyleURL,
+} from '@rnmapbox/maps';
+import {
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ComponentType,
+  type ElementRef,
+  type ReactNode,
+} from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -39,6 +55,15 @@ const SCHOOL_ARRIVE_RADIUS_M = 300;
 // long enough to register the checkmark, short enough not to feel stuck.
 const AUTO_ADVANCE_DELAY_MS = 650;
 
+// @rnmapbox/maps' generated .d.ts for ShapeSource merges two mismatched
+// constructor signatures, which breaks JSX prop-checking even for valid
+// usage — same workaround already used in the parent app's HomeScreen.
+const ShapeSource = ShapeSourceComponent as unknown as ComponentType<{
+  id: string;
+  shape: GeoJSON.Feature<GeoJSON.LineString>;
+  children?: ReactNode;
+}>;
+
 type Props = NativeStackScreenProps<DriverStackParamList, 'Attendance'>;
 
 type AttendanceStudent = DriverStackParamList['Attendance']['students'][number];
@@ -55,6 +80,24 @@ function getInitials(name: string): string {
   const first = parts[0]?.[0] ?? '';
   const last = parts.length > 1 ? parts[parts.length - 1][0] : '';
   return (first + last).toUpperCase();
+}
+
+function formatDistance(meters: number): string {
+  if (meters < 950) return `${Math.round(meters / 10) * 10} m`;
+  return `${(meters / 1000).toFixed(1)} km`;
+}
+
+function buildLineFeature(
+  points: Array<{ lat: number; lng: number }>,
+): GeoJSON.Feature<GeoJSON.LineString> {
+  return {
+    type: 'Feature',
+    properties: {},
+    geometry: {
+      type: 'LineString',
+      coordinates: points.map((p) => [p.lng, p.lat]),
+    },
+  };
 }
 
 export default function AttendanceScreen({ navigation, route }: Props) {
@@ -83,6 +126,9 @@ export default function AttendanceScreen({ navigation, route }: Props) {
   const [isEndingTrip, setIsEndingTrip] = useState(false);
   const [showEndConfirm, setShowEndConfirm] = useState(false);
   const [nearSchool, setNearSchool] = useState(false);
+  // The bus = this phone. A foreground watcher keeps the marker moving while
+  // the screen is open (the background broadcaster serves the parents).
+  const [busPosition, setBusPosition] = useState<{ lat: number; lng: number } | null>(null);
   const cameraRef = useRef<ElementRef<typeof Camera> | null>(null);
 
   // A BOTH route is authored in morning order (homes → school); the afternoon
@@ -202,6 +248,44 @@ export default function AttendanceScreen({ navigation, route }: Props) {
     loadExisting();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tripId]);
+
+  // Follow the phone's own GPS while this screen is up — this is what moves
+  // the bus puck and drives the distance readout. Permissions were already
+  // granted when the background broadcast started.
+  useEffect(() => {
+    let sub: Location.LocationSubscription | null = null;
+    let cancelled = false;
+
+    (async () => {
+      try {
+        const first = await Location.getCurrentPositionAsync({
+          accuracy: Location.Accuracy.Balanced,
+        });
+        if (!cancelled) {
+          setBusPosition({ lat: first.coords.latitude, lng: first.coords.longitude });
+        }
+        sub = await Location.watchPositionAsync(
+          {
+            accuracy: Location.Accuracy.Balanced,
+            timeInterval: 5000,
+            distanceInterval: 15,
+          },
+          (pos) => {
+            if (!cancelled) {
+              setBusPosition({ lat: pos.coords.latitude, lng: pos.coords.longitude });
+            }
+          },
+        );
+      } catch {
+        // No fix — the map still shows stops; the puck appears when GPS returns.
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+      sub?.remove();
+    };
+  }, []);
 
   async function markStudent(
     studentId: string,
@@ -353,6 +437,23 @@ export default function AttendanceScreen({ navigation, route }: Props) {
         (s) => !isDoneAtStop(attendanceMap[s.id], isBoardStop),
       ) ?? null;
 
+  // A synthetic school stop only has real coordinates when the school has
+  // been geocoded — guard so (0,0) never leaks onto the map.
+  const stopHasCoords = (s: { id: string; latitude: number; longitude: number }) =>
+    s.id !== SCHOOL_STOP_ID || (schoolLat != null && schoolLng != null);
+
+  // The road ahead: the bus, then every stop still to visit, in driving
+  // order. Drawn as the route line so the driver always sees where the run
+  // goes next — the whole reason this screen is a map now.
+  const remainingStops = sortedStops.slice(currentStopIndex).filter(stopHasCoords);
+  const routeLinePoints = useMemo(() => {
+    const pts: Array<{ lat: number; lng: number }> = [];
+    if (busPosition) pts.push(busPosition);
+    for (const s of remainingStops) pts.push({ lat: s.latitude, lng: s.longitude });
+    return pts;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [busPosition?.lat, busPosition?.lng, currentStopIndex, sortedStops]);
+
   // Only students with a real saved pickup location get a pin — showing a
   // fallback here (e.g. the school) would send the driver to the wrong door.
   // At the school phase nobody's home pin is relevant any more (they're all
@@ -380,28 +481,49 @@ export default function AttendanceScreen({ navigation, route }: Props) {
           label: s.name[0]?.toUpperCase() ?? '?',
         }));
 
-  useEffect(() => {
-    if (pickupPins.length === 0) return;
+  // Live distance from the bus to the current stop — the number a driver
+  // actually wants while rolling.
+  const distanceToStop =
+    busPosition && currentStop && stopHasCoords(currentStop)
+      ? haversineDistance(
+          busPosition.lat,
+          busPosition.lng,
+          currentStop.latitude,
+          currentStop.longitude,
+        )
+      : null;
 
-    if (pickupPins.length === 1) {
+  // Keep the bus and the current stop framed together, padded clear of the
+  // floating card. Re-fits on every fix — the phone is mounted, nobody is
+  // pinch-zooming mid-drive.
+  useEffect(() => {
+    const focus: Array<{ lat: number; lng: number }> = [];
+    if (busPosition) focus.push(busPosition);
+    if (currentStop && stopHasCoords(currentStop)) {
+      focus.push({ lat: currentStop.latitude, lng: currentStop.longitude });
+    }
+    for (const pin of pickupPins) focus.push({ lat: pin.lat, lng: pin.lng });
+
+    if (focus.length === 0) return;
+    if (focus.length === 1) {
       cameraRef.current?.setCamera({
-        centerCoordinate: [pickupPins[0].lng, pickupPins[0].lat],
-        zoomLevel: 14,
-        animationDuration: 0,
+        centerCoordinate: [focus[0].lng, focus[0].lat],
+        zoomLevel: 15,
+        animationDuration: 600,
       });
       return;
     }
 
-    const lngs = pickupPins.map((s) => s.lng);
-    const lats = pickupPins.map((s) => s.lat);
+    const lngs = focus.map((p) => p.lng);
+    const lats = focus.map((p) => p.lat);
     cameraRef.current?.fitBounds(
       [Math.max(...lngs), Math.max(...lats)],
       [Math.min(...lngs), Math.min(...lats)],
-      40,
-      0,
+      [110, 60, 340, 60],
+      700,
     );
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [currentStop?.id]);
+  }, [currentStop?.id, busPosition?.lat, busPosition?.lng]);
 
   // The trip can end once every student is accounted for (boarded, dropped,
   // or absent) and the driver is at the run's final stop. Students still on
@@ -416,43 +538,26 @@ export default function AttendanceScreen({ navigation, route }: Props) {
   // shouldn't be able to tap it until the bus is actually back at school.
   const endTripReady = canEndTrip && (!isMorningSchoolWait || nearSchool);
 
-  // Once every pickup is done on the morning run, watch the phone's own GPS;
-  // when the bus is back at the school, reveal the end-trip button and pop a
-  // one-time confirmation the driver can dismiss and re-open manually.
+  // Once every pickup is done on the morning run, the live GPS watcher above
+  // doubles as the arrival check: when the bus is back at the school, reveal
+  // the end-trip button and pop a one-time confirmation.
   useEffect(() => {
     if (!isMorningSchoolWait || nearSchool) return;
     if (!allAccounted) return;
     if (schoolLat == null || schoolLng == null) return;
+    if (!busPosition) return;
 
-    let cancelled = false;
-    const check = async () => {
-      try {
-        const pos = await Location.getCurrentPositionAsync({
-          accuracy: Location.Accuracy.Balanced,
-        });
-        if (cancelled) return;
-        const dist = haversineDistance(
-          pos.coords.latitude,
-          pos.coords.longitude,
-          schoolLat,
-          schoolLng,
-        );
-        if (dist <= SCHOOL_ARRIVE_RADIUS_M) {
-          setNearSchool(true);
-          setShowEndConfirm(true);
-        }
-      } catch {
-        // GPS unavailable — the driver can still end manually once shown.
-      }
-    };
-
-    check();
-    const intervalId = setInterval(check, 30_000);
-    return () => {
-      cancelled = true;
-      clearInterval(intervalId);
-    };
-  }, [isMorningSchoolWait, nearSchool, allAccounted, schoolLat, schoolLng]);
+    const dist = haversineDistance(
+      busPosition.lat,
+      busPosition.lng,
+      schoolLat,
+      schoolLng,
+    );
+    if (dist <= SCHOOL_ARRIVE_RADIUS_M) {
+      setNearSchool(true);
+      setShowEndConfirm(true);
+    }
+  }, [isMorningSchoolWait, nearSchool, allAccounted, schoolLat, schoolLng, busPosition]);
 
   // Auto-advance: once every student at this stop is marked, move to the
   // next stop on its own — no "next stop" tap required. The morning school
@@ -497,6 +602,14 @@ export default function AttendanceScreen({ navigation, route }: Props) {
   const markedCount = currentStopStudents.filter((s) => !!attendanceMap[s.id]).length;
   const totalAtStop = currentStopStudents.length;
 
+  // Map camera's very first frame: current stop, else school, else Lagos.
+  const initialCenter: [number, number] =
+    currentStop && stopHasCoords(currentStop)
+      ? [currentStop.longitude, currentStop.latitude]
+      : schoolLat != null && schoolLng != null
+      ? [schoolLng, schoolLat]
+      : [3.3792, 6.5244];
+
   return (
     <View style={styles.container}>
       <ConfirmDialog
@@ -508,82 +621,117 @@ export default function AttendanceScreen({ navigation, route }: Props) {
         onCancel={() => setShowSosConfirm(false)}
         onConfirm={sendSOS}
       />
-      <SafeAreaView edges={['top']} style={styles.headerSafe}>
-        <View style={styles.header}>
-          <View style={styles.brandRow}>
-            <View style={styles.logoCircle}>
-              <BusFrontIcon size={18} color={color.ink} />
+
+      {/* Fullscreen map — the screen IS the drive. Everything else floats. */}
+      <MapView
+        style={StyleSheet.absoluteFill}
+        styleURL={StyleURL.Street}
+        scrollEnabled
+        zoomEnabled
+        pitchEnabled={false}
+        attributionEnabled={false}
+        logoEnabled={false}
+      >
+        <Camera
+          ref={cameraRef}
+          defaultSettings={{ centerCoordinate: initialCenter, zoomLevel: 14 }}
+        />
+
+        {/* The road ahead: bus → current stop → every remaining stop */}
+        {routeLinePoints.length > 1 && (
+          <ShapeSource id="run-line" shape={buildLineFeature(routeLinePoints)}>
+            <LineLayer
+              id="run-line-layer"
+              style={{
+                lineColor: color.danfo,
+                lineWidth: 4,
+                lineCap: 'round',
+                lineJoin: 'round',
+                lineDasharray: [0.2, 1.8],
+              }}
+            />
+          </ShapeSource>
+        )}
+
+        {/* Upcoming stops after the current one — small waypoints */}
+        {remainingStops.slice(1).map((s) => (
+          <PointAnnotation key={s.id} id={`waypoint-${s.id}`} coordinate={[s.longitude, s.latitude]}>
+            <View style={styles.waypointDot} />
+          </PointAnnotation>
+        ))}
+
+        {/* The current stop — where the driver is headed right now */}
+        {currentStop && stopHasCoords(currentStop) && (
+          <PointAnnotation
+            key={`current-${currentStop.id}`}
+            id="current-stop"
+            coordinate={[currentStop.longitude, currentStop.latitude]}
+          >
+            <View style={styles.currentStopPin}>
+              <View style={styles.currentStopPinInner} />
             </View>
-            <Text style={styles.wordmark}>
-              Bus<Text style={styles.wordmarkAccent}>Buzz</Text>
+          </PointAnnotation>
+        )}
+
+        {/* Student doors at the current stop (initial-letter pins) */}
+        {pickupPins.map((pin) => (
+          <PointAnnotation key={pin.id} id={`pin-${pin.id}`} coordinate={[pin.lng, pin.lat]}>
+            <View style={styles.pickupPin}>
+              <Text style={styles.pickupPinText}>{pin.label}</Text>
+            </View>
+          </PointAnnotation>
+        ))}
+
+        {/* The bus — this phone, live */}
+        {busPosition && (
+          <MarkerView
+            coordinate={[busPosition.lng, busPosition.lat]}
+            anchor={{ x: 0.5, y: 0.5 }}
+          >
+            <View style={styles.busMarker}>
+              <BusFrontIcon size={20} color={color.danfo} />
+            </View>
+          </MarkerView>
+        )}
+      </MapView>
+
+      {/* Floating top row: stop context pill + SOS */}
+      <SafeAreaView edges={['top']} pointerEvents="box-none" style={styles.topOverlay}>
+        <View style={styles.topRow} pointerEvents="box-none">
+          <View style={styles.stopPill}>
+            <Text style={styles.stopPillEyebrow}>
+              {isMorningSchoolWait
+                ? 'FINAL STOP'
+                : `STOP ${currentStopIndex + 1} OF ${sortedStops.length}${
+                    totalAtStop > 0 ? ` · ${markedCount}/${totalAtStop} MARKED` : ''
+                  }`}
+            </Text>
+            <Text style={styles.stopPillName} numberOfLines={1}>
+              {currentStop?.name}
             </Text>
           </View>
-          <View style={styles.headerRight}>
-            <View style={styles.enRoutePill}>
-              <View style={styles.enRouteDot} />
-              <Text style={styles.enRouteText}>EN ROUTE</Text>
-            </View>
-            <Pressable
-              style={({ pressed }) => [styles.sosDiamond, pressed && styles.pressed]}
-              onPress={() => setShowSosConfirm(true)}
-              accessibilityLabel="Send SOS alert"
-            >
-              <AlertDiamondIcon size={20} color={color.stopRed} />
-            </Pressable>
-          </View>
+          <Pressable
+            style={({ pressed }) => [styles.sosDiamond, pressed && styles.pressed]}
+            onPress={() => setShowSosConfirm(true)}
+            accessibilityLabel="Send SOS alert"
+          >
+            <AlertDiamondIcon size={20} color={color.stopRed} />
+          </Pressable>
         </View>
       </SafeAreaView>
 
-      {/* Stop strip — one compact context bar, not a card */}
-      <View style={styles.stopStrip}>
-        <View style={styles.stopStripLeft}>
-          <Text style={styles.stopEyebrow}>
-            {isMorningSchoolWait
-              ? 'Final stop'
-              : `Stop ${currentStopIndex + 1} of ${sortedStops.length}`}
-          </Text>
-          <Text style={styles.stopName} numberOfLines={1}>
-            {currentStop?.name}
-          </Text>
-        </View>
-        {!isMorningSchoolWait && (
-          <View style={styles.stopStripBadge}>
-            <Text style={styles.stopStripBadgeValue}>
-              {markedCount}/{totalAtStop}
+      {/* Floating action card — the single working surface. One primary action. */}
+      <View style={[styles.card, { bottom: insets.bottom + space.md }]}>
+        {/* Distance readout — how far to the door the bus is heading for */}
+        {distanceToStop !== null && !nearSchool && (
+          <View style={styles.distanceRow}>
+            <View style={styles.distanceDot} />
+            <Text style={styles.distanceText}>
+              {formatDistance(distanceToStop)} to {currentStop?.name}
             </Text>
-            <Text style={styles.stopStripBadgeLabel}>marked</Text>
           </View>
         )}
-      </View>
 
-      {/* Map takes whatever the action sheet doesn't need */}
-      <View style={styles.mapArea}>
-        {pickupPins.length > 0 ? (
-          <MapView
-            style={StyleSheet.absoluteFill}
-            styleURL={StyleURL.Street}
-            scrollEnabled
-            zoomEnabled
-            pitchEnabled={false}
-            attributionEnabled={false}
-            logoEnabled={false}
-          >
-            <Camera ref={cameraRef} defaultSettings={{ zoomLevel: 16.5 }} />
-            {pickupPins.map((pin) => (
-              <PointAnnotation key={pin.id} id={`pin-${pin.id}`} coordinate={[pin.lng, pin.lat]}>
-                <View style={styles.pickupPin}>
-                  <Text style={styles.pickupPinText}>{pin.label}</Text>
-                </View>
-              </PointAnnotation>
-            ))}
-          </MapView>
-        ) : (
-          <View style={styles.mapEmpty} />
-        )}
-      </View>
-
-      {/* Action sheet — the single working surface. One primary action. */}
-      <View style={[styles.sheet, { paddingBottom: space.lg + insets.bottom }]}>
         {isMorningSchoolWait ? (
           <>
             <View style={styles.sheetHeadRow}>
@@ -807,153 +955,153 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     backgroundColor: color.canvas,
   },
-  // Header
-  headerSafe: {
-    backgroundColor: color.ink,
-  },
-  header: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingHorizontal: space.xl,
-    paddingVertical: space.md,
-    backgroundColor: color.ink,
-    borderBottomWidth: 3,
-    borderBottomColor: color.danfo,
-  },
-  brandRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: space.sm + 2,
-  },
-  logoCircle: {
-    width: 34,
-    height: 34,
-    borderRadius: 17,
-    backgroundColor: color.danfo,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  wordmark: {
-    fontSize: 20,
-    fontWeight: '800',
-    color: color.white,
-    letterSpacing: -0.3,
-  },
-  wordmarkAccent: {
-    color: color.danfo,
-  },
-  headerRight: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: space.sm + 2,
-  },
-  enRoutePill: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-    backgroundColor: color.routeGreen,
-    paddingHorizontal: space.md,
-    paddingVertical: 6,
-    borderRadius: radius.pill,
-  },
-  enRouteDot: {
-    width: 7,
-    height: 7,
-    borderRadius: 3.5,
-    backgroundColor: color.white,
-  },
-  enRouteText: {
-    color: color.white,
-    fontSize: 11,
-    fontWeight: '800',
-    letterSpacing: 0.8,
-  },
-  sosDiamond: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    backgroundColor: 'rgba(225,62,45,0.14)',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
   pressed: {
     opacity: 0.85,
   },
-  // Stop strip — compact context bar under the header
-  stopStrip: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    gap: space.md,
-    paddingHorizontal: space.lg,
-    paddingVertical: space.md,
-    backgroundColor: color.surface,
-    borderBottomWidth: 1,
-    borderBottomColor: color.hairline,
+  // ── Map elements ──────────────────────────────────────────
+  waypointDot: {
+    width: 14,
+    height: 14,
+    borderRadius: 7,
+    backgroundColor: color.white,
+    borderWidth: 3,
+    borderColor: color.ink,
   },
-  stopStripLeft: {
-    flex: 1,
-    minWidth: 0,
-  },
-  stopStripBadge: {
-    alignItems: 'center',
-    backgroundColor: color.canvas,
-    borderRadius: radius.md,
-    paddingHorizontal: space.md,
-    paddingVertical: space.xs + 2,
-  },
-  stopStripBadgeValue: {
-    fontSize: 16,
-    fontWeight: '800',
-    color: color.ink,
-    fontVariant: ['tabular-nums'],
-  },
-  stopStripBadgeLabel: {
-    fontSize: 10,
-    fontWeight: '700',
-    letterSpacing: 0.6,
-    textTransform: 'uppercase',
-    color: color.sub,
-  },
-  // Map — fills the space between strip and sheet
-  mapArea: {
-    flex: 1,
-    minHeight: 120,
-    backgroundColor: color.ink,
-    overflow: 'hidden',
-  },
-  mapEmpty: {
-    flex: 1,
-    backgroundColor: color.canvas,
-  },
-  pickupPin: {
+  currentStopPin: {
     width: 30,
     height: 30,
     borderRadius: 15,
     backgroundColor: color.danfo,
+    borderWidth: 3,
+    borderColor: color.ink,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  currentStopPinInner: {
+    width: 10,
+    height: 10,
+    borderRadius: 5,
+    backgroundColor: color.ink,
+  },
+  pickupPin: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    backgroundColor: color.white,
     alignItems: 'center',
     justifyContent: 'center',
     borderWidth: 2,
-    borderColor: color.white,
+    borderColor: color.ink,
   },
   pickupPinText: {
     color: color.ink,
     fontWeight: '800',
-    fontSize: 13,
+    fontSize: 12,
   },
-  stopEyebrow: {
-    fontSize: 11,
-    fontWeight: '700',
-    letterSpacing: 1.2,
-    textTransform: 'uppercase',
-    color: color.sub,
+  busMarker: {
+    width: 42,
+    height: 42,
+    borderRadius: 21,
+    backgroundColor: color.ink,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 3,
+    borderColor: color.danfo,
+    shadowColor: '#000',
+    shadowOpacity: 0.3,
+    shadowOffset: { width: 0, height: 3 },
+    shadowRadius: 6,
+    elevation: 6,
   },
-  stopName: {
-    fontSize: 20,
+  // ── Floating top overlay ──────────────────────────────────
+  topOverlay: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+  },
+  topRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: space.sm + 2,
+    paddingHorizontal: space.md,
+    paddingTop: space.sm,
+  },
+  stopPill: {
+    flex: 1,
+    minWidth: 0,
+    backgroundColor: color.ink,
+    borderRadius: radius.lg,
+    paddingHorizontal: space.lg,
+    paddingVertical: space.sm + 4,
+    borderBottomWidth: 3,
+    borderBottomColor: color.danfo,
+    shadowColor: '#000',
+    shadowOpacity: 0.25,
+    shadowOffset: { width: 0, height: 4 },
+    shadowRadius: 10,
+    elevation: 8,
+  },
+  stopPillEyebrow: {
+    fontSize: 10,
     fontWeight: '800',
-    color: color.ink,
-    marginTop: 2,
+    letterSpacing: 1,
+    color: color.danfo,
+    fontVariant: ['tabular-nums'],
+  },
+  stopPillName: {
+    fontSize: 18,
+    fontWeight: '800',
+    color: color.white,
+    marginTop: 1,
+  },
+  sosDiamond: {
+    width: 46,
+    height: 46,
+    borderRadius: 23,
+    backgroundColor: color.white,
+    alignItems: 'center',
+    justifyContent: 'center',
+    shadowColor: '#000',
+    shadowOpacity: 0.25,
+    shadowOffset: { width: 0, height: 4 },
+    shadowRadius: 10,
+    elevation: 8,
+  },
+  // ── Floating action card ──────────────────────────────────
+  card: {
+    position: 'absolute',
+    left: space.md,
+    right: space.md,
+    backgroundColor: color.surface,
+    borderRadius: 24,
+    paddingHorizontal: space.lg,
+    paddingTop: space.md,
+    paddingBottom: space.md,
+    shadowColor: '#000',
+    shadowOpacity: 0.18,
+    shadowOffset: { width: 0, height: 8 },
+    shadowRadius: 20,
+    elevation: 14,
+  },
+  distanceRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: space.sm,
+    marginBottom: space.sm + 2,
+  },
+  distanceDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    backgroundColor: color.routeGreen,
+  },
+  distanceText: {
+    flex: 1,
+    fontSize: 13,
+    fontWeight: '700',
+    color: color.sub,
+    fontVariant: ['tabular-nums'],
   },
   // Stop-complete transition row (between auto-advances)
   stopDoneRow: {
@@ -967,20 +1115,6 @@ const styles = StyleSheet.create({
     fontSize: 15,
     fontWeight: '700',
     color: color.sub,
-  },
-  // Action sheet — bottom working surface
-  sheet: {
-    backgroundColor: color.surface,
-    borderTopLeftRadius: 24,
-    borderTopRightRadius: 24,
-    paddingHorizontal: space.lg,
-    paddingTop: space.lg,
-    marginTop: -20,
-    shadowColor: '#000',
-    shadowOpacity: 0.1,
-    shadowOffset: { width: 0, height: -4 },
-    shadowRadius: 12,
-    elevation: 10,
   },
   // Student row — photo beside name, not a tall centered column
   studentRow: {
@@ -1028,7 +1162,7 @@ const styles = StyleSheet.create({
     color: color.sub,
     marginTop: 1,
   },
-  // Morning school-wait content inside the sheet
+  // Morning school-wait content inside the card
   sheetHeadRow: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -1095,7 +1229,7 @@ const styles = StyleSheet.create({
     backgroundColor: color.routeGreen,
     borderRadius: radius.md,
     paddingVertical: 18,
-    marginTop: space.lg,
+    marginTop: space.md,
   },
   activePrimaryText: {
     color: color.white,
