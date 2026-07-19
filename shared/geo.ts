@@ -64,6 +64,33 @@ export function isWithinRadius(
 }
 
 /**
+ * Initial bearing from point 1 to point 2, in degrees clockwise from north
+ * (0–360). Used to judge whether a vehicle is heading toward a stop.
+ */
+export function bearingDegrees(
+  lat1: number,
+  lon1: number,
+  lat2: number,
+  lon2: number,
+): number {
+  const φ1 = toRadians(lat1);
+  const φ2 = toRadians(lat2);
+  const Δλ = toRadians(lon2 - lon1);
+  const y = Math.sin(Δλ) * Math.cos(φ2);
+  const x =
+    Math.cos(φ1) * Math.sin(φ2) - Math.sin(φ1) * Math.cos(φ2) * Math.cos(Δλ);
+  return (((Math.atan2(y, x) * 180) / Math.PI) + 360) % 360;
+}
+
+/**
+ * Smallest absolute difference between two bearings, in degrees (0–180).
+ */
+export function bearingDiff(a: number, b: number): number {
+  const d = Math.abs(a - b) % 360;
+  return d > 180 ? 360 - d : d;
+}
+
+/**
  * Estimate time of arrival given distance remaining and current speed.
  *
  * @param distanceMetres - Remaining distance in metres

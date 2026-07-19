@@ -12,6 +12,7 @@ import { StatusBar } from 'expo-status-bar';
 import {
   useCallback,
   useEffect,
+  useMemo,
   useRef,
   useState,
   type ComponentType,
@@ -912,6 +913,41 @@ export default function HomeScreen() {
   const isStopped =
     !!trip && busSpeed === 0 && distanceToStop !== null && distanceToStop > APPROACH_RADIUS_M;
 
+  // The stop the bus is heading for. Not simply "next in sequence": if the
+  // driver takes a different road than the saved order, the highlight follows
+  // the bus — nearest unreached stop to its live position, with a 60m
+  // hysteresis so GPS jitter can't flip the label between two stops.
+  const prevNextStopIdRef = useRef<string | null>(null);
+  const nextStopIndex = useMemo(() => {
+    const unreached = routeStops
+      .map((s, i) => ({ s, i }))
+      .filter(({ s }) => !reachedStops[s.id]);
+    if (unreached.length === 0) return -1;
+    if (!busPosition) return unreached[0].i;
+
+    let best = unreached[0];
+    let bestD = haversineDistance(
+      busPosition.lat, busPosition.lng, best.s.latitude, best.s.longitude,
+    );
+    for (const u of unreached.slice(1)) {
+      const d = haversineDistance(busPosition.lat, busPosition.lng, u.s.latitude, u.s.longitude);
+      if (d < bestD) {
+        best = u;
+        bestD = d;
+      }
+    }
+
+    const prev = unreached.find((u) => u.s.id === prevNextStopIdRef.current);
+    if (prev && prev.s.id !== best.s.id) {
+      const prevD = haversineDistance(
+        busPosition.lat, busPosition.lng, prev.s.latitude, prev.s.longitude,
+      );
+      if (bestD > prevD - 60) best = prev;
+    }
+    prevNextStopIdRef.current = best.s.id;
+    return best.i;
+  }, [routeStops, reachedStops, busPosition]);
+
   const chip = getStatusChip(trip, attendance, busSpeed, isApproaching, routeType);
   const selectedChildColor = selectedStudent
     ? childColors[selectedStudent.id] ?? color.danfo500
@@ -936,9 +972,6 @@ export default function HomeScreen() {
   }
 
   const reachedCount = routeStops.filter((s) => reachedStops[s.id]).length;
-  // The stop the bus is currently heading for = the first one it hasn't reached
-  // yet. Highlighted in the timeline so the journey reads as a progression.
-  const nextStopIndex = routeStops.findIndex((s) => !reachedStops[s.id]);
   const nextRouteStop = nextStopIndex >= 0 ? routeStops[nextStopIndex] : null;
 
   // The child's own stop name — from their assigned stop, or (if that query

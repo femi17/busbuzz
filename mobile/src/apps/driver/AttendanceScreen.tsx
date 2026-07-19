@@ -1,5 +1,5 @@
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -15,7 +15,11 @@ import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context'
 import Constants from 'expo-constants';
 import * as Location from 'expo-location';
 
-import { haversineDistance } from '../../../../shared/geo';
+import {
+  bearingDegrees,
+  bearingDiff,
+  haversineDistance,
+} from '../../../../shared/geo';
 import type { AttendanceStatus } from '../../../../shared/types';
 import { supabase } from '../../lib/supabase';
 import { ConfirmDialog } from './components/ConfirmDialog';
@@ -35,9 +39,14 @@ const SCHOOL_STOP_ID = '__school__';
 const SCHOOL_MATCH_RADIUS_M = 200;
 // "Back at school" for the auto-end check.
 const SCHOOL_ARRIVE_RADIUS_M = 300;
-// Pause between finishing one student/stop and auto-advancing to the next —
-// long enough to register the checkmark, short enough not to feel stuck.
-const AUTO_ADVANCE_DELAY_MS = 650;
+// Retargeting hysteresis: another stop must beat the current target by this
+// margin before the app switches to it, so GPS jitter can't bounce the card
+// between two nearby stops.
+const RETARGET_MARGIN_M = 60;
+// A stop more than this far off the direction of travel counts as "behind
+// the bus" and is deprioritised when choosing the next target.
+const BEHIND_BEARING_DEG = 100;
+const BEHIND_PENALTY = 1.6;
 
 // Expo Go doesn't ship the Mapbox native module — a top-level
 // @rnmapbox/maps import there crashes the whole bundle, so the map lives in
@@ -52,6 +61,15 @@ const AttendanceMapModule = IS_EXPO_GO
 type Props = NativeStackScreenProps<DriverStackParamList, 'Attendance'>;
 
 type AttendanceStudent = DriverStackParamList['Attendance']['students'][number];
+
+type RunStop = {
+  id: string;
+  routeId: string;
+  name: string;
+  latitude: number;
+  longitude: number;
+  sequence: number;
+};
 
 type MapPin = {
   id: string;
@@ -87,7 +105,6 @@ export default function AttendanceScreen({ navigation, route }: Props) {
   } = route.params;
   const insets = useSafeAreaInsets();
 
-  const [currentStopIndex, setCurrentStopIndex] = useState(0);
   const [attendanceMap, setAttendanceMap] = useState<
     Record<string, AttendanceStatus>
   >({});
@@ -101,6 +118,12 @@ export default function AttendanceScreen({ navigation, route }: Props) {
   // The bus = this phone. A foreground watcher keeps the marker moving while
   // the screen is open (the background broadcaster serves the parents).
   const [busPosition, setBusPosition] = useState<{ lat: number; lng: number } | null>(null);
+  // Direction of travel (degrees from north) — from the GPS fix while the
+  // bus is actually moving; stale headings from a parked bus are ignored.
+  const [heading, setHeading] = useState<number | null>(null);
+  // The stop the driver is currently being routed to — kept across renders
+  // so retargeting only happens when another stop is decisively better.
+  const lastTargetIdRef = useRef<string | null>(null);
 
   // A BOTH route is authored in morning order (homes → school); the afternoon
   // run drives it back, so the stop sequence reverses. Dedicated AFTERNOON
@@ -113,7 +136,7 @@ export default function AttendanceScreen({ navigation, route }: Props) {
   // appearing at a street mid-morning. Authored stops that sit at the school
   // (within 200m) are folded into the synthetic one, and street stops with no
   // students riding THIS run are skipped entirely.
-  const sortedStops = useMemo(() => {
+  const sortedStops = useMemo<RunStop[]>(() => {
     const asc = [...stops].sort((a, b) => a.sequence - b.sequence);
     const ordered =
       direction === 'AFTERNOON' && routeType === 'BOTH' ? asc.reverse() : asc;
@@ -130,7 +153,7 @@ export default function AttendanceScreen({ navigation, route }: Props) {
         students.some((s) => s.stopId === stop.id || s.stopId === null),
     );
 
-    const schoolStop = {
+    const schoolStop: RunStop = {
       id: SCHOOL_STOP_ID,
       routeId: ordered[0]?.routeId ?? '',
       name: schoolName?.trim() || 'School',
@@ -144,26 +167,20 @@ export default function AttendanceScreen({ navigation, route }: Props) {
       : [schoolStop, ...streets];
   }, [stops, direction, routeType, students, schoolName, schoolLat, schoolLng]);
 
-  const isLastStop = currentStopIndex === sortedStops.length - 1;
-  const currentStop = sortedStops[currentStopIndex];
-  const nextStop = !isLastStop ? sortedStops[currentStopIndex + 1] : null;
+  const schoolStop = sortedStops.find((s) => s.id === SCHOOL_STOP_ID)!;
+  const streetStops = sortedStops.filter((s) => s.id !== SCHOOL_STOP_ID);
 
-  // Morning: board at every stop, drop everyone at the last (school).
-  // Afternoon: board everyone at the first stop (school), drop at each stop after.
-  function isBoardStopAt(index: number): boolean {
-    return direction === 'MORNING'
-      ? index < sortedStops.length - 1
-      : index === 0;
+  // Morning: board at every street, drop everyone at the school.
+  // Afternoon: board everyone at the school, drop at each street.
+  const isSchoolStop = (stop: RunStop) => stop.id === SCHOOL_STOP_ID;
+  function isBoardStopFor(stop: RunStop): boolean {
+    return direction === 'MORNING' ? !isSchoolStop(stop) : isSchoolStop(stop);
   }
 
-  function studentsForStop(index: number): AttendanceStudent[] {
-    const stop = sortedStops[index];
-    if (!stop) return [];
-    // The school end of the run involves every student: morning's last stop
-    // drops everyone off; afternoon's first stop boards everyone.
-    const isEveryoneStop =
-      direction === 'MORNING' ? index === sortedStops.length - 1 : index === 0;
-    if (isEveryoneStop) return students;
+  function studentsFor(stop: RunStop): AttendanceStudent[] {
+    // The school end of the run involves every student: morning's school
+    // drops everyone off; afternoon's school boards everyone.
+    if (isSchoolStop(stop)) return students;
     return students.filter((s) => s.stopId === stop.id || s.stopId === null);
   }
 
@@ -176,6 +193,11 @@ export default function AttendanceScreen({ navigation, route }: Props) {
     if (boardStop) return true;
     // Drop stops: a boarded student still needs dropping off.
     return status === 'DROPPED_OFF' || status === 'ABSENT';
+  }
+
+  function isStopDone(stop: RunStop): boolean {
+    const board = isBoardStopFor(stop);
+    return studentsFor(stop).every((s) => isDoneAtStop(attendanceMap[s.id], board));
   }
 
   useEffect(() => {
@@ -192,24 +214,6 @@ export default function AttendanceScreen({ navigation, route }: Props) {
             map[row.student_id] = row.status as AttendanceStatus;
           });
           setAttendanceMap(map);
-
-          // Determine currentStopIndex: first stop with students still needing action
-          let resumeIndex = sortedStops.length - 1;
-          for (let i = 0; i < sortedStops.length; i++) {
-            const boardStop = isBoardStopAt(i);
-            const stopStudents = studentsForStop(i);
-            const allDone = stopStudents.every((s) =>
-              isDoneAtStop(map[s.id], boardStop),
-            );
-            if (!allDone) {
-              resumeIndex = i;
-              break;
-            }
-            if (i === sortedStops.length - 1) {
-              resumeIndex = i;
-            }
-          }
-          setCurrentStopIndex(resumeIndex);
         }
       } finally {
         setIsLoadingExisting(false);
@@ -217,35 +221,37 @@ export default function AttendanceScreen({ navigation, route }: Props) {
     }
 
     loadExisting();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tripId]);
 
   // Follow the phone's own GPS while this screen is up — this is what moves
-  // the bus puck and drives the distance readout. Permissions were already
-  // granted when the background broadcast started.
+  // the bus puck, drives the distance readout, and steers stop targeting.
+  // Permissions were already granted when the background broadcast started.
   useEffect(() => {
     let sub: Location.LocationSubscription | null = null;
     let cancelled = false;
+
+    const takeFix = (pos: Location.LocationObject) => {
+      if (cancelled) return;
+      setBusPosition({ lat: pos.coords.latitude, lng: pos.coords.longitude });
+      const h = pos.coords.heading;
+      const speed = pos.coords.speed ?? 0;
+      // Heading is only meaningful while moving — a parked bus reports noise.
+      if (h != null && h >= 0 && speed > 1.5) setHeading(h);
+    };
 
     (async () => {
       try {
         const first = await Location.getCurrentPositionAsync({
           accuracy: Location.Accuracy.Balanced,
         });
-        if (!cancelled) {
-          setBusPosition({ lat: first.coords.latitude, lng: first.coords.longitude });
-        }
+        takeFix(first);
         sub = await Location.watchPositionAsync(
           {
             accuracy: Location.Accuracy.Balanced,
             timeInterval: 5000,
             distanceInterval: 15,
           },
-          (pos) => {
-            if (!cancelled) {
-              setBusPosition({ lat: pos.coords.latitude, lng: pos.coords.longitude });
-            }
-          },
+          takeFix,
         );
       } catch {
         // No fix — the map still shows stops; the puck appears when GPS returns.
@@ -382,13 +388,74 @@ export default function AttendanceScreen({ navigation, route }: Props) {
     }
   }
 
-  const isBoardStop = isBoardStopAt(currentStopIndex);
-  const currentStopStudents = studentsForStop(currentStopIndex);
-  const isSchoolPhase = currentStop?.id === SCHOOL_STOP_ID;
-  // The morning run's final phase is a wait-for-arrival + end-trip screen,
-  // not a per-student marking screen (nobody needs individually marking —
-  // confirmEndTrip sweeps everyone still boarded into DROPPED_OFF).
-  const isMorningSchoolWait = isSchoolPhase && direction === 'MORNING';
+  // A synthetic school stop only has real coordinates when the school has
+  // been geocoded — guard so (0,0) never leaks onto the map.
+  const stopHasCoords = (s: RunStop) =>
+    s.id !== SCHOOL_STOP_ID || (schoolLat != null && schoolLng != null);
+
+  // ── Dynamic stop targeting ─────────────────────────────────
+  // The saved pickup order is a default, not a contract. If the driver takes
+  // a different road, the run follows the bus: among stops still needing
+  // action, target whichever one the bus is closest to and actually heading
+  // toward — stops behind the direction of travel are deprioritised.
+  const streetCandidates = streetStops.filter((s) => !isStopDone(s));
+  const schoolDone = students.every((s) => !!attendanceMap[s.id]);
+  const inSchoolPhase =
+    direction === 'MORNING' ? streetCandidates.length === 0 : !schoolDone;
+
+  const currentStop: RunStop | null = useMemo(() => {
+    if (inSchoolPhase) return schoolStop;
+    if (streetCandidates.length === 0) return null; // afternoon: everyone dropped
+    if (streetCandidates.length === 1 || !busPosition) {
+      const keep = streetCandidates.find((s) => s.id === lastTargetIdRef.current);
+      const pick = keep ?? streetCandidates[0];
+      lastTargetIdRef.current = pick.id;
+      return pick;
+    }
+
+    const scored = streetCandidates.map((s) => {
+      const d = haversineDistance(
+        busPosition.lat,
+        busPosition.lng,
+        s.latitude,
+        s.longitude,
+      );
+      let score = d;
+      if (heading != null) {
+        const toStop = bearingDegrees(
+          busPosition.lat,
+          busPosition.lng,
+          s.latitude,
+          s.longitude,
+        );
+        if (bearingDiff(heading, toStop) > BEHIND_BEARING_DEG) {
+          score *= BEHIND_PENALTY;
+        }
+      }
+      return { stop: s, score };
+    });
+    scored.sort((a, b) => a.score - b.score);
+
+    const best = scored[0];
+    const prev = scored.find((x) => x.stop.id === lastTargetIdRef.current);
+    // Hysteresis: keep the current target unless the challenger is decisively
+    // better, so jitter never bounces the card between two stops.
+    const pick =
+      prev && best.stop.id !== prev.stop.id && best.score + RETARGET_MARGIN_M > prev.score
+        ? prev.stop
+        : best.stop;
+    lastTargetIdRef.current = pick.id;
+    return pick;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [inSchoolPhase, attendanceMap, busPosition?.lat, busPosition?.lng, heading, sortedStops]);
+
+  const isSchoolPhase = currentStop != null && isSchoolStop(currentStop);
+  const isMorningSchoolWait = direction === 'MORNING' && inSchoolPhase;
+  // Afternoon only: every street drop is done — nothing left but ending.
+  const runComplete = direction === 'AFTERNOON' && !inSchoolPhase && streetCandidates.length === 0;
+
+  const currentStopStudents = currentStop ? studentsFor(currentStop) : [];
+  const isBoardStop = currentStop ? isBoardStopFor(currentStop) : false;
 
   // Each student's own street (their assigned stop) — shown at the school
   // boarding phase (afternoon) where the whole bus is listed, so rows aren't
@@ -408,22 +475,26 @@ export default function AttendanceScreen({ navigation, route }: Props) {
         (s) => !isDoneAtStop(attendanceMap[s.id], isBoardStop),
       ) ?? null;
 
-  // A synthetic school stop only has real coordinates when the school has
-  // been geocoded — guard so (0,0) never leaks onto the map.
-  const stopHasCoords = (s: { id: string; latitude: number; longitude: number }) =>
-    s.id !== SCHOOL_STOP_ID || (schoolLat != null && schoolLng != null);
+  // Stops still to visit after the current target, in authored order — the
+  // rest of the road ahead.
+  const upcomingStreetStops = streetCandidates.filter((s) => s.id !== currentStop?.id);
+  const upcomingStops: RunStop[] = [
+    ...upcomingStreetStops,
+    ...(direction === 'MORNING' && !inSchoolPhase && stopHasCoords(schoolStop)
+      ? [schoolStop]
+      : []),
+  ];
 
-  // The road ahead: the bus, then every stop still to visit, in driving
-  // order. Drawn as the route line so the driver always sees where the run
-  // goes next — the whole reason this screen is a map now.
-  const remainingStops = sortedStops.slice(currentStopIndex).filter(stopHasCoords);
   const routeLinePoints = useMemo(() => {
     const pts: Array<{ lat: number; lng: number }> = [];
     if (busPosition) pts.push(busPosition);
-    for (const s of remainingStops) pts.push({ lat: s.latitude, lng: s.longitude });
+    if (currentStop && stopHasCoords(currentStop)) {
+      pts.push({ lat: currentStop.latitude, lng: currentStop.longitude });
+    }
+    for (const s of upcomingStops) pts.push({ lat: s.latitude, lng: s.longitude });
     return pts;
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [busPosition?.lat, busPosition?.lng, currentStopIndex, sortedStops]);
+  }, [busPosition?.lat, busPosition?.lng, currentStop?.id, attendanceMap]);
 
   // Only students with a real saved pickup location get a pin — showing a
   // fallback here (e.g. the school) would send the driver to the wrong door.
@@ -465,17 +536,18 @@ export default function AttendanceScreen({ navigation, route }: Props) {
       : null;
 
   // The trip can end once every student is accounted for (boarded, dropped,
-  // or absent) and the driver is at the run's final stop. Students still on
-  // board when the trip ends at school are marked DROPPED_OFF automatically —
-  // that's what physically happened.
+  // or absent) and the run has nothing left. Students still on board when the
+  // trip ends at school are marked DROPPED_OFF automatically — that's what
+  // physically happened.
   const pendingDropCount = students.filter(
     (s) => attendanceMap[s.id] === 'BOARDED',
   ).length;
   const allAccounted = students.every((s) => !!attendanceMap[s.id]);
-  const canEndTrip = isLastStop && allAccounted;
   // Morning's end trip is additionally gated on GPS proximity — the driver
   // shouldn't be able to tap it until the bus is actually back at school.
-  const endTripReady = canEndTrip && (!isMorningSchoolWait || nearSchool);
+  const endTripReady = isMorningSchoolWait
+    ? allAccounted && nearSchool
+    : runComplete && allAccounted;
 
   // Once every pickup is done on the morning run, the live GPS watcher above
   // doubles as the arrival check: when the bus is back at the school, reveal
@@ -498,28 +570,6 @@ export default function AttendanceScreen({ navigation, route }: Props) {
     }
   }, [isMorningSchoolWait, nearSchool, allAccounted, schoolLat, schoolLng, busPosition]);
 
-  // Auto-advance: once every student at this stop is marked, move to the
-  // next stop on its own — no "next stop" tap required. The morning school
-  // phase and the run's last stop are handled by the end-trip flow instead.
-  useEffect(() => {
-    if (isLoadingExisting) return;
-    if (isMorningSchoolWait) return;
-    if (isLastStop) return;
-    if (activeStudent) return;
-    if (currentStopStudents.length === 0) return;
-
-    const timer = setTimeout(() => {
-      setCurrentStopIndex((i) => i + 1);
-    }, AUTO_ADVANCE_DELAY_MS);
-    return () => clearTimeout(timer);
-  }, [
-    isLoadingExisting,
-    isMorningSchoolWait,
-    isLastStop,
-    activeStudent,
-    currentStopStudents.length,
-  ]);
-
   const droppedCount = students.filter(
     (s) => attendanceMap[s.id] === 'DROPPED_OFF',
   ).length;
@@ -540,6 +590,24 @@ export default function AttendanceScreen({ navigation, route }: Props) {
 
   const markedCount = currentStopStudents.filter((s) => !!attendanceMap[s.id]).length;
   const totalAtStop = currentStopStudents.length;
+
+  // Stop ordinal for the pill: how many streets are done, plus the school's
+  // place in this direction's order.
+  const totalStops = streetStops.length + 1;
+  const doneStreets = streetStops.length - streetCandidates.length;
+  const pillEyebrow = isMorningSchoolWait
+    ? 'FINAL STOP'
+    : runComplete
+    ? 'RUN COMPLETE'
+    : isSchoolPhase
+    ? `STOP 1 OF ${totalStops}${totalAtStop > 0 ? ` · ${markedCount}/${totalAtStop} MARKED` : ''}`
+    : `STOP ${direction === 'MORNING' ? doneStreets + 1 : doneStreets + 2} OF ${totalStops}${
+        totalAtStop > 0 ? ` · ${markedCount}/${totalAtStop} MARKED` : ''
+      }`;
+
+  const nextStopPreviewName =
+    upcomingStreetStops[0]?.name ??
+    (direction === 'MORNING' ? schoolName?.trim() || 'School' : 'This is the last stop');
 
   // Map camera's very first frame: current stop, else school, else Lagos.
   const initialCenter: [number, number] =
@@ -566,7 +634,7 @@ export default function AttendanceScreen({ navigation, route }: Props) {
         <AttendanceMapModule.AttendanceMap
           initialCenter={initialCenter}
           routeLinePoints={routeLinePoints}
-          upcomingStops={remainingStops.slice(1)}
+          upcomingStops={upcomingStops}
           currentStop={currentStop && stopHasCoords(currentStop) ? currentStop : null}
           pickupPins={pickupPins}
           busPosition={busPosition}
@@ -584,15 +652,9 @@ export default function AttendanceScreen({ navigation, route }: Props) {
       <SafeAreaView edges={['top']} pointerEvents="box-none" style={styles.topOverlay}>
         <View style={styles.topRow} pointerEvents="box-none">
           <View style={styles.stopPill}>
-            <Text style={styles.stopPillEyebrow}>
-              {isMorningSchoolWait
-                ? 'FINAL STOP'
-                : `STOP ${currentStopIndex + 1} OF ${sortedStops.length}${
-                    totalAtStop > 0 ? ` · ${markedCount}/${totalAtStop} MARKED` : ''
-                  }`}
-            </Text>
+            <Text style={styles.stopPillEyebrow}>{pillEyebrow}</Text>
             <Text style={styles.stopPillName} numberOfLines={1}>
-              {currentStop?.name}
+              {currentStop?.name ?? 'All students dropped off'}
             </Text>
           </View>
           <Pressable
@@ -608,7 +670,7 @@ export default function AttendanceScreen({ navigation, route }: Props) {
       {/* Floating action card — the single working surface. One primary action. */}
       <View style={[styles.card, { bottom: insets.bottom + space.md }]}>
         {/* Distance readout — how far to the door the bus is heading for */}
-        {distanceToStop !== null && !nearSchool && (
+        {distanceToStop !== null && !nearSchool && !runComplete && (
           <View style={styles.distanceRow}>
             <View style={styles.distanceDot} />
             <Text style={styles.distanceText}>
@@ -617,7 +679,7 @@ export default function AttendanceScreen({ navigation, route }: Props) {
           </View>
         )}
 
-        {isMorningSchoolWait ? (
+        {isMorningSchoolWait || runComplete ? (
           <>
             <View style={styles.sheetHeadRow}>
               <View style={styles.sheetHeadIcon}>
@@ -625,10 +687,16 @@ export default function AttendanceScreen({ navigation, route }: Props) {
               </View>
               <View style={styles.sheetHeadMeta}>
                 <Text style={styles.sheetHeadTitle}>
-                  {nearSchool ? "You're back at school" : 'Heading to school'}
+                  {runComplete
+                    ? 'All students dropped off'
+                    : nearSchool
+                    ? "You're back at school"
+                    : 'Heading to school'}
                 </Text>
                 <Text style={styles.sheetHeadSub} numberOfLines={2}>
-                  {nearSchool
+                  {runComplete
+                    ? 'End the trip to finish the run.'
+                    : nearSchool
                     ? 'End the trip to notify parents their children are in school.'
                     : `End the trip once you're back at ${schoolName?.trim() || 'the school'}.`}
                 </Text>
@@ -636,8 +704,12 @@ export default function AttendanceScreen({ navigation, route }: Props) {
             </View>
             <View style={styles.sheetStatRow}>
               <View style={styles.sheetStat}>
-                <Text style={styles.sheetStatValue}>{boardedCount}</Text>
-                <Text style={styles.sheetStatLabel}>On board</Text>
+                <Text style={styles.sheetStatValue}>
+                  {runComplete ? droppedCount : boardedCount}
+                </Text>
+                <Text style={styles.sheetStatLabel}>
+                  {runComplete ? 'Dropped off' : 'On board'}
+                </Text>
               </View>
               <View style={styles.sheetStatDivider} />
               <View style={styles.sheetStat}>
@@ -710,14 +782,9 @@ export default function AttendanceScreen({ navigation, route }: Props) {
               </Pressable>
             )}
           </>
-        ) : (
-          <View style={styles.stopDoneRow}>
-            <CheckIcon size={20} color={color.routeGreen} />
-            <Text style={styles.stopDoneText}>Stop complete</Text>
-          </View>
-        )}
+        ) : null}
 
-        {isLastStop ? (
+        {isMorningSchoolWait || runComplete ? (
           <Pressable
             style={({ pressed }) => [
               styles.endTripButton,
@@ -738,7 +805,7 @@ export default function AttendanceScreen({ navigation, route }: Props) {
           <View style={styles.nextStopPreview}>
             <Text style={styles.nextStopPreviewLabel}>Next stop</Text>
             <Text style={styles.nextStopPreviewName} numberOfLines={1}>
-              {nextStop?.name ?? '—'}
+              {nextStopPreviewName}
             </Text>
           </View>
         )}
@@ -952,19 +1019,6 @@ const styles = StyleSheet.create({
     color: color.sub,
     fontVariant: ['tabular-nums'],
   },
-  // Stop-complete transition row (between auto-advances)
-  stopDoneRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: space.sm,
-    paddingVertical: space.xl,
-  },
-  stopDoneText: {
-    fontSize: 15,
-    fontWeight: '700',
-    color: color.sub,
-  },
   // Student row — photo beside name, not a tall centered column
   studentRow: {
     flexDirection: 'row',
@@ -1011,7 +1065,7 @@ const styles = StyleSheet.create({
     color: color.sub,
     marginTop: 1,
   },
-  // Morning school-wait content inside the card
+  // Morning school-wait / run-complete content inside the card
   sheetHeadRow: {
     flexDirection: 'row',
     alignItems: 'center',
