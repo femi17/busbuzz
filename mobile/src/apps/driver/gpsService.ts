@@ -1,4 +1,5 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import Constants from 'expo-constants';
 import * as Location from 'expo-location';
 import * as TaskManager from 'expo-task-manager';
 
@@ -175,13 +176,23 @@ export async function startGPSBroadcast(
     throw new Error('Foreground location permission denied');
   }
 
+  const context: GpsContext = { tripId, busId, deviceId };
+
+  // Expo Go can't run the background broadcaster (no background location
+  // permission, no Android foreground service). Store the context so the
+  // rest of the app treats the trip as live, but skip the task — parents
+  // won't receive pings during an Expo Go test session, and that's fine.
+  if (Constants.appOwnership === 'expo') {
+    await AsyncStorage.setItem(GPS_CONTEXT_KEY, JSON.stringify(context));
+    return;
+  }
+
   const backgroundPermission =
     await Location.requestBackgroundPermissionsAsync();
   if (backgroundPermission.status !== 'granted') {
     throw new Error('Background location permission denied');
   }
 
-  const context: GpsContext = { tripId, busId, deviceId };
   await AsyncStorage.setItem(GPS_CONTEXT_KEY, JSON.stringify(context));
 
   await Location.startLocationUpdatesAsync(GPS_TASK_NAME, {

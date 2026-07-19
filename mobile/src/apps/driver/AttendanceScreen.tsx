@@ -1,22 +1,5 @@
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
-import {
-  Camera,
-  LineLayer,
-  MapView,
-  MarkerView,
-  PointAnnotation,
-  ShapeSource as ShapeSourceComponent,
-  StyleURL,
-} from '@rnmapbox/maps';
-import {
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
-  type ComponentType,
-  type ElementRef,
-  type ReactNode,
-} from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -29,6 +12,7 @@ import {
 } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 
+import Constants from 'expo-constants';
 import * as Location from 'expo-location';
 
 import { haversineDistance } from '../../../../shared/geo';
@@ -55,14 +39,15 @@ const SCHOOL_ARRIVE_RADIUS_M = 300;
 // long enough to register the checkmark, short enough not to feel stuck.
 const AUTO_ADVANCE_DELAY_MS = 650;
 
-// @rnmapbox/maps' generated .d.ts for ShapeSource merges two mismatched
-// constructor signatures, which breaks JSX prop-checking even for valid
-// usage — same workaround already used in the parent app's HomeScreen.
-const ShapeSource = ShapeSourceComponent as unknown as ComponentType<{
-  id: string;
-  shape: GeoJSON.Feature<GeoJSON.LineString>;
-  children?: ReactNode;
-}>;
+// Expo Go doesn't ship the Mapbox native module — a top-level
+// @rnmapbox/maps import there crashes the whole bundle, so the map lives in
+// its own module required only inside a real build. Expo Go gets a
+// placeholder and everything else on this screen still works.
+const IS_EXPO_GO = Constants.appOwnership === 'expo';
+// eslint-disable-next-line @typescript-eslint/no-var-requires
+const AttendanceMapModule = IS_EXPO_GO
+  ? null
+  : (require('./AttendanceMap') as typeof import('./AttendanceMap'));
 
 type Props = NativeStackScreenProps<DriverStackParamList, 'Attendance'>;
 
@@ -85,19 +70,6 @@ function getInitials(name: string): string {
 function formatDistance(meters: number): string {
   if (meters < 950) return `${Math.round(meters / 10) * 10} m`;
   return `${(meters / 1000).toFixed(1)} km`;
-}
-
-function buildLineFeature(
-  points: Array<{ lat: number; lng: number }>,
-): GeoJSON.Feature<GeoJSON.LineString> {
-  return {
-    type: 'Feature',
-    properties: {},
-    geometry: {
-      type: 'LineString',
-      coordinates: points.map((p) => [p.lng, p.lat]),
-    },
-  };
 }
 
 export default function AttendanceScreen({ navigation, route }: Props) {
@@ -129,7 +101,6 @@ export default function AttendanceScreen({ navigation, route }: Props) {
   // The bus = this phone. A foreground watcher keeps the marker moving while
   // the screen is open (the background broadcaster serves the parents).
   const [busPosition, setBusPosition] = useState<{ lat: number; lng: number } | null>(null);
-  const cameraRef = useRef<ElementRef<typeof Camera> | null>(null);
 
   // A BOTH route is authored in morning order (homes → school); the afternoon
   // run drives it back, so the stop sequence reverses. Dedicated AFTERNOON
@@ -493,38 +464,6 @@ export default function AttendanceScreen({ navigation, route }: Props) {
         )
       : null;
 
-  // Keep the bus and the current stop framed together, padded clear of the
-  // floating card. Re-fits on every fix — the phone is mounted, nobody is
-  // pinch-zooming mid-drive.
-  useEffect(() => {
-    const focus: Array<{ lat: number; lng: number }> = [];
-    if (busPosition) focus.push(busPosition);
-    if (currentStop && stopHasCoords(currentStop)) {
-      focus.push({ lat: currentStop.latitude, lng: currentStop.longitude });
-    }
-    for (const pin of pickupPins) focus.push({ lat: pin.lat, lng: pin.lng });
-
-    if (focus.length === 0) return;
-    if (focus.length === 1) {
-      cameraRef.current?.setCamera({
-        centerCoordinate: [focus[0].lng, focus[0].lat],
-        zoomLevel: 15,
-        animationDuration: 600,
-      });
-      return;
-    }
-
-    const lngs = focus.map((p) => p.lng);
-    const lats = focus.map((p) => p.lat);
-    cameraRef.current?.fitBounds(
-      [Math.max(...lngs), Math.max(...lats)],
-      [Math.min(...lngs), Math.min(...lats)],
-      [110, 60, 340, 60],
-      700,
-    );
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [currentStop?.id, busPosition?.lat, busPosition?.lng]);
-
   // The trip can end once every student is accounted for (boarded, dropped,
   // or absent) and the driver is at the run's final stop. Students still on
   // board when the trip ends at school are marked DROPPED_OFF automatically —
@@ -623,77 +562,23 @@ export default function AttendanceScreen({ navigation, route }: Props) {
       />
 
       {/* Fullscreen map — the screen IS the drive. Everything else floats. */}
-      <MapView
-        style={StyleSheet.absoluteFill}
-        styleURL={StyleURL.Street}
-        scrollEnabled
-        zoomEnabled
-        pitchEnabled={false}
-        attributionEnabled={false}
-        logoEnabled={false}
-      >
-        <Camera
-          ref={cameraRef}
-          defaultSettings={{ centerCoordinate: initialCenter, zoomLevel: 14 }}
+      {AttendanceMapModule ? (
+        <AttendanceMapModule.AttendanceMap
+          initialCenter={initialCenter}
+          routeLinePoints={routeLinePoints}
+          upcomingStops={remainingStops.slice(1)}
+          currentStop={currentStop && stopHasCoords(currentStop) ? currentStop : null}
+          pickupPins={pickupPins}
+          busPosition={busPosition}
         />
-
-        {/* The road ahead: bus → current stop → every remaining stop */}
-        {routeLinePoints.length > 1 && (
-          <ShapeSource id="run-line" shape={buildLineFeature(routeLinePoints)}>
-            <LineLayer
-              id="run-line-layer"
-              style={{
-                lineColor: color.danfo,
-                lineWidth: 4,
-                lineCap: 'round',
-                lineJoin: 'round',
-                lineDasharray: [0.2, 1.8],
-              }}
-            />
-          </ShapeSource>
-        )}
-
-        {/* Upcoming stops after the current one — small waypoints */}
-        {remainingStops.slice(1).map((s) => (
-          <PointAnnotation key={s.id} id={`waypoint-${s.id}`} coordinate={[s.longitude, s.latitude]}>
-            <View style={styles.waypointDot} />
-          </PointAnnotation>
-        ))}
-
-        {/* The current stop — where the driver is headed right now */}
-        {currentStop && stopHasCoords(currentStop) && (
-          <PointAnnotation
-            key={`current-${currentStop.id}`}
-            id="current-stop"
-            coordinate={[currentStop.longitude, currentStop.latitude]}
-          >
-            <View style={styles.currentStopPin}>
-              <View style={styles.currentStopPinInner} />
-            </View>
-          </PointAnnotation>
-        )}
-
-        {/* Student doors at the current stop (initial-letter pins) */}
-        {pickupPins.map((pin) => (
-          <PointAnnotation key={pin.id} id={`pin-${pin.id}`} coordinate={[pin.lng, pin.lat]}>
-            <View style={styles.pickupPin}>
-              <Text style={styles.pickupPinText}>{pin.label}</Text>
-            </View>
-          </PointAnnotation>
-        ))}
-
-        {/* The bus — this phone, live */}
-        {busPosition && (
-          <MarkerView
-            coordinate={[busPosition.lng, busPosition.lat]}
-            anchor={{ x: 0.5, y: 0.5 }}
-          >
-            <View style={styles.busMarker}>
-              <BusFrontIcon size={20} color={color.danfo} />
-            </View>
-          </MarkerView>
-        )}
-      </MapView>
+      ) : (
+        <View style={styles.mapPlaceholder}>
+          <BusFrontIcon size={34} color={color.sub} />
+          <Text style={styles.mapPlaceholderText}>
+            The live map shows in the installed app{'\n'}(not available in Expo Go)
+          </Text>
+        </View>
+      )}
 
       {/* Floating top row: stop context pill + SOS */}
       <SafeAreaView edges={['top']} pointerEvents="box-none" style={styles.topOverlay}>
@@ -958,60 +843,24 @@ const styles = StyleSheet.create({
   pressed: {
     opacity: 0.85,
   },
-  // ── Map elements ──────────────────────────────────────────
-  waypointDot: {
-    width: 14,
-    height: 14,
-    borderRadius: 7,
-    backgroundColor: color.white,
-    borderWidth: 3,
-    borderColor: color.ink,
-  },
-  currentStopPin: {
-    width: 30,
-    height: 30,
-    borderRadius: 15,
-    backgroundColor: color.danfo,
-    borderWidth: 3,
-    borderColor: color.ink,
+  // ── Expo Go map placeholder ───────────────────────────────
+  mapPlaceholder: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
     alignItems: 'center',
     justifyContent: 'center',
+    gap: space.md,
+    backgroundColor: color.canvas,
   },
-  currentStopPinInner: {
-    width: 10,
-    height: 10,
-    borderRadius: 5,
-    backgroundColor: color.ink,
-  },
-  pickupPin: {
-    width: 28,
-    height: 28,
-    borderRadius: 14,
-    backgroundColor: color.white,
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderWidth: 2,
-    borderColor: color.ink,
-  },
-  pickupPinText: {
-    color: color.ink,
-    fontWeight: '800',
-    fontSize: 12,
-  },
-  busMarker: {
-    width: 42,
-    height: 42,
-    borderRadius: 21,
-    backgroundColor: color.ink,
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderWidth: 3,
-    borderColor: color.danfo,
-    shadowColor: '#000',
-    shadowOpacity: 0.3,
-    shadowOffset: { width: 0, height: 3 },
-    shadowRadius: 6,
-    elevation: 6,
+  mapPlaceholderText: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: color.sub,
+    textAlign: 'center',
+    lineHeight: 19,
   },
   // ── Floating top overlay ──────────────────────────────────
   topOverlay: {

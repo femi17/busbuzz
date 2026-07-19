@@ -12,7 +12,20 @@
       "name": "mobile",
       "runtimeExecutable": "npm",
       "runtimeArgs": ["start", "--prefix", "mobile"],
-      "port": 8081
+      "port": 8081,
+      "env": {
+        "NODE_TLS_REJECT_UNAUTHORIZED": "0"
+      }
+    },
+    {
+      "name": "mobile-driver",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["start", "--prefix", "mobile"],
+      "port": 8081,
+      "env": {
+        "NODE_TLS_REJECT_UNAUTHORIZED": "0",
+        "APP_VARIANT": "driver"
+      }
     },
     {
       "name": "abremovals",
