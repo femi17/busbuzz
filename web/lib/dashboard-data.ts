@@ -1,5 +1,6 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 import type { TripRow } from '@/components/dashboard/TripsTable';
+import { computeOnTimePercentage } from '../../shared/geo';
 
 // Shared dashboard aggregate loader. Runs with either the server (SSR first
 // paint) or the browser (live polling) Supabase client — both are RLS-scoped to
@@ -28,26 +29,12 @@ export type DashboardData = {
   trips: TripRow[];
 };
 
-// A bus is "on time" at a stop when it arrives no later than the stop's
-// scheduled eta_minutes plus this grace window. Arriving early is on time —
-// only lateness beyond the grace counts as a miss. (An earlier version compared
-// the absolute difference, which wrongly flagged every early arrival as late.)
-const ON_TIME_GRACE_MINUTES = 5;
-
-export function computeOnTimePercentage(
-  arrivals: { triggeredAt: string; tripStartedAt: string; etaMinutes: number | null }[],
-): number | null {
-  const scored = arrivals.filter((a) => a.etaMinutes != null);
-  if (scored.length === 0) return null;
-
-  const onTimeCount = scored.filter((a) => {
-    const actualOffsetMs = new Date(a.triggeredAt).getTime() - new Date(a.tripStartedAt).getTime();
-    const allowedMs = (a.etaMinutes! + ON_TIME_GRACE_MINUTES) * 60_000;
-    return actualOffsetMs <= allowedMs;
-  }).length;
-
-  return Math.round((onTimeCount / scored.length) * 100);
-}
+// computeOnTimePercentage now lives in shared/geo.ts — get-reports' Reports
+// page StatCard used to compute "On-Time %" a completely different way
+// (whole-trip duration vs. a route's single max eta_minutes, 10-minute
+// grace) than this dashboard did, so the same-labeled stat could show two
+// different numbers depending which screen an admin was looking at.
+export { computeOnTimePercentage };
 
 function startOfTodayISO(): string {
   const now = new Date();

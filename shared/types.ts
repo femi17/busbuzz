@@ -237,7 +237,6 @@ export interface TripReportRow {
   busPlateNumber: string;
   routeName: string;
   routeType: RouteType;
-  studentCount: number;
   startedAt: string;
   endedAt: string | null;
   durationMinutes: number | null;

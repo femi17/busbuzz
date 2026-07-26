@@ -107,3 +107,46 @@ export function estimateETA(
   const speedMs = speedKmh / 3.6; // convert km/h to m/s
   return distanceMetres / speedMs;
 }
+
+// ============================================================
+// On-time arrival scoring
+// ============================================================
+//
+// Single source of truth for "On-Time %", shared by the web dashboard
+// (dashboard-data.ts) and the get-reports Edge Function (which inlines a
+// copy of this — Deno Edge Functions here bundle standalone, so it can't
+// import this file directly; keep both in sync if this changes). They used
+// to compute "on-time" two genuinely different ways: this one (per-stop
+// arrival vs. that stop's own eta_minutes, 5-minute grace) vs. get-reports'
+// old version (whole-trip duration vs. a route's single max eta_minutes,
+// 10-minute grace) — so the same-labeled stat could show two different
+// numbers depending which screen you were looking at.
+
+export const ON_TIME_GRACE_MINUTES = 5;
+
+/**
+ * Percentage of scored stop arrivals that landed at or before the stop's
+ * scheduled ETA plus a grace window. Arrivals with no eta_minutes on their
+ * stop are excluded rather than penalized (no expectation to miss).
+ *
+ * @returns Rounded percentage 0-100, or null if nothing was scoreable.
+ */
+export function computeOnTimePercentage(
+  arrivals: Array<{
+    triggeredAt: string;
+    tripStartedAt: string;
+    etaMinutes: number | null;
+  }>,
+): number | null {
+  const scored = arrivals.filter((a) => a.etaMinutes != null);
+  if (scored.length === 0) return null;
+
+  const onTimeCount = scored.filter((a) => {
+    const actualOffsetMs =
+      new Date(a.triggeredAt).getTime() - new Date(a.tripStartedAt).getTime();
+    const allowedMs = (a.etaMinutes! + ON_TIME_GRACE_MINUTES) * 60_000;
+    return actualOffsetMs <= allowedMs;
+  }).length;
+
+  return Math.round((onTimeCount / scored.length) * 100);
+}

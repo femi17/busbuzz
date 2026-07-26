@@ -196,31 +196,14 @@ async function handleTrips(
   }
 
   const tripList = trips ?? [];
-  const tripIds = tripList.map((t: { id: string }) => t.id);
 
-  let attendanceCounts: Record<string, number> = {};
-  if (tripIds.length > 0) {
-    const { data: attendanceRows, error: attendanceError } =
-      await serviceSupabase
-        .from('attendance')
-        .select('trip_id')
-        .in('trip_id', tripIds);
-
-    if (attendanceError) {
-      return jsonResponse(
-        { error: 'Database query failed', statusCode: 500 },
-        500,
-      );
-    }
-
-    attendanceCounts = (attendanceRows ?? []).reduce(
-      (acc: Record<string, number>, row: { trip_id: string }) => {
-        acc[row.trip_id] = (acc[row.trip_id] ?? 0) + 1;
-        return acc;
-      },
-      {},
-    );
-  }
+  // A per-trip student/attendance count used to be computed here
+  // (attendanceCounts, one query over the `attendance` table per report
+  // load) and returned as `studentCount`, but nothing on the Reports page —
+  // not the trip table, not the CSV export — ever read it. It was also
+  // counting every attendance status including ABSENT, which would have
+  // been a misleading "how many students rode this trip" figure had it
+  // ever been surfaced. Removed rather than wired up, since nothing needs it.
 
   const result = tripList.map(
     (trip: {
@@ -246,7 +229,6 @@ async function handleTrips(
         busPlateNumber: trip.bus?.plate_number ?? '—',
         routeName: trip.route?.name ?? '—',
         routeType: trip.route?.type ?? 'MORNING',
-        studentCount: attendanceCounts[trip.id] ?? 0,
         startedAt: trip.started_at,
         endedAt: trip.ended_at,
         durationMinutes,
@@ -271,7 +253,7 @@ async function handleAttendance(
   // 8b-1. Active students in this school
   const { data: students, error: studentsError } = await serviceSupabase
     .from('students')
-    .select('id, name, class_name, route_id, stop_id')
+    .select('id, name, class_name, route_id, stop_id, trip_type')
     .eq('school_id', schoolId)
     .eq('is_active', true);
 
@@ -284,10 +266,16 @@ async function handleAttendance(
 
   const studentList = students ?? [];
 
-  // 8b-2. Trips in date range for this school, grouped by route
+  // 8b-2. Trips in date range for this school, grouped by route AND
+  // direction. A BOTH-type route runs both a morning and an afternoon leg —
+  // a student whose own trip_type is MORNING or AFTERNOON only ever rides
+  // one of those, so counting every trip on the route (both legs) toward
+  // their totalTrips denominator understated their attendance % by up to
+  // half. trips.direction (null on trips predating that column) lets this
+  // scope each student's totalTrips to the leg(s) they actually ride.
   const { data: trips, error: tripsError } = await serviceSupabase
     .from('trips')
-    .select('id, route:routes!inner(id, school_id)')
+    .select('id, direction, route:routes!inner(id, school_id)')
     .eq('route.school_id', schoolId)
     .gte('started_at', startDateISO)
     .lt('started_at', endDateExclusiveISO);
@@ -302,12 +290,36 @@ async function handleAttendance(
   const tripList = trips ?? [];
   const tripIds = tripList.map((t: { id: string }) => t.id);
 
-  const routeTripCounts: Record<string, number> = {};
+  // routeTripCounts[routeId] = { MORNING, AFTERNOON, unknown } — unknown
+  // covers trips with no recorded direction (legacy data); those count
+  // toward every student on the route regardless of trip_type, same as
+  // this whole calculation behaved before trips.direction existed.
+  type DirectionCounts = { MORNING: number; AFTERNOON: number; unknown: number };
+  const routeTripCounts: Record<string, DirectionCounts> = {};
   for (const trip of tripList) {
     const routeId = trip.route?.id;
-    if (routeId) {
-      routeTripCounts[routeId] = (routeTripCounts[routeId] ?? 0) + 1;
+    if (!routeId) continue;
+    if (!routeTripCounts[routeId]) {
+      routeTripCounts[routeId] = { MORNING: 0, AFTERNOON: 0, unknown: 0 };
     }
+    if (trip.direction === 'MORNING' || trip.direction === 'AFTERNOON') {
+      routeTripCounts[routeId][trip.direction] += 1;
+    } else {
+      routeTripCounts[routeId].unknown += 1;
+    }
+  }
+
+  function totalTripsFor(routeId: string | null, tripType: string | null): number {
+    if (!routeId) return 0;
+    const counts = routeTripCounts[routeId];
+    if (!counts) return 0;
+    if (tripType === 'MORNING') return counts.MORNING + counts.unknown;
+    if (tripType === 'AFTERNOON') return counts.AFTERNOON + counts.unknown;
+    // BOTH, null, or any other value: every trip on the route is relevant
+    // (this is also what a dedicated MORNING/AFTERNOON route's students —
+    // whose trip_type is always 'BOTH' since direction is meaningless there
+    // — resolve to: all of that route's trips share the one direction).
+    return counts.MORNING + counts.AFTERNOON + counts.unknown;
   }
 
   // Student → assigned stop, so a boarding can be matched to its stop-arrival time.
@@ -381,10 +393,9 @@ async function handleAttendance(
         name: string;
         class_name: string;
         route_id: string | null;
+        trip_type: string | null;
       }) => {
-        const totalTrips = student.route_id
-          ? routeTripCounts[student.route_id] ?? 0
-          : 0;
+        const totalTrips = totalTripsFor(student.route_id, student.trip_type);
         const boardedCount = boardedCounts[student.id] ?? 0;
         const absentCount = absentCounts[student.id] ?? 0;
         const attendancePercentage =
@@ -447,71 +458,65 @@ async function handleSummary(
 
   const tripList = trips ?? [];
   const totalTrips = tripList.length;
+  const tripIds = tripList.map((t: { id: string }) => t.id);
 
-  // 8c-2. On-time percentage
-  const completedTrips = tripList.filter(
-    (t: { status: string; ended_at: string | null }) =>
-      t.status === 'COMPLETED' && t.ended_at,
-  );
+  // 8c-2. On-time percentage — per-stop arrival vs. that stop's own
+  // eta_minutes, ON_TIME_GRACE_MINUTES grace. This used to instead compare
+  // a trip's whole duration against its route's single MAX eta_minutes with
+  // a 10-minute grace, which computed a completely different number than
+  // the identically-labeled "On-Time %" on the main dashboard
+  // (dashboard-data.ts / shared/geo.ts computeOnTimePercentage) for the
+  // same period. Inlined here (not imported) since this Deno function
+  // bundles standalone — keep in sync with shared/geo.ts if it changes.
+  const ON_TIME_GRACE_MINUTES = 5;
+  const tripStartedAtById: Record<string, string> = {};
+  for (const trip of tripList) {
+    tripStartedAtById[trip.id] = trip.started_at;
+  }
 
-  const routeIds = Array.from(
-    new Set(
-      completedTrips
-        .map((t: { route: { id: string } | null }) => t.route?.id)
-        .filter((id: string | undefined): id is string => Boolean(id)),
-    ),
-  );
+  let onTimePercentage = 0;
+  if (tripIds.length > 0) {
+    const { data: triggerRows, error: triggersError } = await serviceSupabase
+      .from('trip_stop_triggers')
+      .select('trip_id, triggered_at, stop:stops(eta_minutes)')
+      .in('trip_id', tripIds);
 
-  let routeMaxEta: Record<string, number | null> = {};
-  if (routeIds.length > 0) {
-    const { data: stopRows, error: stopsError } = await serviceSupabase
-      .from('stops')
-      .select('route_id, eta_minutes')
-      .in('route_id', routeIds);
-
-    if (stopsError) {
+    if (triggersError) {
       return jsonResponse(
         { error: 'Database query failed', statusCode: 500 },
         500,
       );
     }
 
-    for (const routeId of routeIds) {
-      routeMaxEta[routeId] = null;
-    }
+    const scored = ((triggerRows ?? []) as Array<{
+      trip_id: string;
+      triggered_at: string;
+      stop: { eta_minutes: number | null } | { eta_minutes: number | null }[] | null;
+    }>)
+      .map((row) => {
+        const stop = Array.isArray(row.stop) ? row.stop[0] ?? null : row.stop;
+        const etaMinutes = stop?.eta_minutes ?? null;
+        const tripStartedAt = tripStartedAtById[row.trip_id];
+        if (etaMinutes == null || !tripStartedAt) return null;
+        return { triggeredAt: row.triggered_at, tripStartedAt, etaMinutes };
+      })
+      .filter(
+        (x): x is { triggeredAt: string; tripStartedAt: string; etaMinutes: number } =>
+          x !== null,
+      );
 
-    for (const stop of stopRows ?? []) {
-      if (stop.eta_minutes != null) {
-        const current = routeMaxEta[stop.route_id];
-        if (current === null || current === undefined || stop.eta_minutes > current) {
-          routeMaxEta[stop.route_id] = stop.eta_minutes;
-        }
-      }
+    if (scored.length > 0) {
+      const onTimeCount = scored.filter((a) => {
+        const actualOffsetMs =
+          new Date(a.triggeredAt).getTime() - new Date(a.tripStartedAt).getTime();
+        const allowedMs = (a.etaMinutes + ON_TIME_GRACE_MINUTES) * 60_000;
+        return actualOffsetMs <= allowedMs;
+      }).length;
+      onTimePercentage = Math.round((onTimeCount / scored.length) * 1000) / 10;
     }
   }
-
-  let eligibleCount = 0;
-  let onTimeCount = 0;
-  for (const trip of completedTrips) {
-    const routeId = trip.route?.id;
-    const expectedDuration = routeId ? routeMaxEta[routeId] : null;
-    if (expectedDuration === null || expectedDuration === undefined) {
-      continue; // exclude routes with no eta_minutes data
-    }
-    eligibleCount += 1;
-    const actualDuration =
-      (new Date(trip.ended_at).getTime() - new Date(trip.started_at).getTime()) /
-      60000;
-    if (actualDuration <= expectedDuration + 10) {
-      onTimeCount += 1;
-    }
-  }
-
-  const onTimePercentage =
-    eligibleCount > 0 ? Math.round((onTimeCount / eligibleCount) * 1000) / 10 : 0;
 
   // 8c-3. Distinct students with at least one BOARDED record this range
-  const tripIds = tripList.map((t: { id: string }) => t.id);
   let totalStudentsTransported = 0;
   if (tripIds.length > 0) {
     const { data: boardedRows, error: boardedError } = await serviceSupabase
