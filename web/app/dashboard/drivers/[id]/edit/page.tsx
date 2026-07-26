@@ -105,10 +105,28 @@ export default function EditDriverPage() {
       }
 
       // Bus assignment lives on buses.driver_id (source of truth) —
-      // profiles.assigned_bus_id mirrors it via a DB trigger.
-      await supabase.from('buses').update({ driver_id: null }).eq('driver_id', id);
+      // profiles.assigned_bus_id mirrors it via a DB trigger. Both writes
+      // used to be unchecked, so a failure here (especially the second one,
+      // right after the first already cleared the old assignment) could
+      // silently leave the driver assigned to no bus at all while the admin
+      // was told the update succeeded.
+      const { error: clearBusError } = await supabase
+        .from('buses')
+        .update({ driver_id: null })
+        .eq('driver_id', id);
+      if (clearBusError) {
+        setFormError('Driver details saved, but updating the bus assignment failed — try again from this page.');
+        return;
+      }
       if (assignedBusId) {
-        await supabase.from('buses').update({ driver_id: id }).eq('id', assignedBusId);
+        const { error: assignBusError } = await supabase
+          .from('buses')
+          .update({ driver_id: id })
+          .eq('id', assignedBusId);
+        if (assignBusError) {
+          setFormError('Driver details saved, but assigning the new bus failed — try again from this page.');
+          return;
+        }
       }
 
       router.push('/dashboard/drivers?updated=1');

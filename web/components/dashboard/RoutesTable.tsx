@@ -1,5 +1,7 @@
 'use client';
 
+import Link from 'next/link';
+import { Pencil } from 'lucide-react';
 import { DeleteRouteButton } from './DeleteRouteButton';
 import { TableShell } from './TableShell';
 
@@ -44,7 +46,16 @@ export function RoutesTable({ routes }: { routes: RouteTableRow[] }) {
                 </td>
                 <td className="px-5 py-3 text-[13px] text-sub">{route.studentCount}</td>
                 <td className="px-5 py-3">
-                  <DeleteRouteButton routeId={route.id} studentCount={route.studentCount} />
+                  <div className="flex items-center gap-4">
+                    <Link
+                      href={`/dashboard/routes/${route.id}/edit`}
+                      className="inline-flex items-center gap-1.5 text-[12px] font-medium text-sub hover:text-ink transition-colors duration-100"
+                    >
+                      <Pencil size={13} strokeWidth={2} />
+                      Edit
+                    </Link>
+                    <DeleteRouteButton routeId={route.id} studentCount={route.studentCount} />
+                  </div>
                 </td>
               </tr>
             ))}

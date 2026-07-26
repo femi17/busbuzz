@@ -145,6 +145,15 @@ export const updateStudentSchema = z.object({
   routeId: uuidSchema.nullable().optional(),
   stopId: uuidSchema.nullable().optional(),
   isActive: z.boolean().optional(),
+  // Mirrors createStudentSchema's pickup/direction fields — the web edit
+  // page used to write these straight to the students table with a raw,
+  // unchecked Supabase client call because this schema (and manage-student's
+  // handler) didn't recognize them, so they were silently stripped if sent
+  // here instead.
+  tripType: z.enum(['MORNING', 'AFTERNOON', 'BOTH']).optional(),
+  pickupAddress: z.string().max(500).nullable().optional(),
+  pickupLat: latitudeSchema.nullable().optional(),
+  pickupLng: longitudeSchema.nullable().optional(),
 });
 
 // ----- Auth schemas -----

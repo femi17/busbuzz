@@ -7,7 +7,6 @@ import { createClient } from '@/lib/supabase';
 import { createPhotoSignedUrl } from '@/lib/photos';
 import { PhotoUpload } from '@/components/dashboard/PhotoUpload';
 import { AddressAutocompleteInput } from '@/components/dashboard/AddressAutocompleteInput';
-import { geocodeAddress } from '@/lib/google-maps';
 
 const inputClass = 'w-full rounded-[var(--radius-btn)] border border-rule px-3 py-2.5 text-sm text-ink placeholder:text-sub focus:border-amber focus:outline-none focus:ring-1 focus:ring-amber disabled:bg-canvas disabled:opacity-60';
 const labelClass = 'block text-sm font-medium text-ink mb-1.5';
@@ -88,16 +87,25 @@ export default function EditStudentPage() {
       const { data: sessionData } = await supabase.auth.getSession();
       const accessToken = sessionData.session?.access_token;
 
+      // Everything goes through this one PATCH now — pickupAddress/pickupLat/
+      // pickupLng/tripType used to also get written by a second, unchecked
+      // client-side `students` table update (manage-student's schema didn't
+      // recognize those fields, so sending them here silently did nothing
+      // while that second write silently could have failed). The server
+      // geocodes pickupAddress itself when no trusted coordinates are sent
+      // with it, same as student creation.
       const body: Record<string, unknown> = {
         id,
         name: name.trim(),
         className: className.trim(),
+        pickupAddress: pickupAddress.trim() || null,
+        pickupLat: pickupAddress.trim() ? pickupCoords?.lat : null,
+        pickupLng: pickupAddress.trim() ? pickupCoords?.lng : null,
+        tripType: showDirectionPicker ? tripType : 'BOTH',
       };
-      if (pickupAddress.trim()) body.pickupAddress = pickupAddress.trim();
       if (routeId) {
         body.routeId = routeId;
         if (stopId) body.stopId = stopId;
-        body.tripType = showDirectionPicker ? tripType : 'BOTH';
       } else {
         body.routeId = null;
         body.stopId = null;
@@ -117,19 +125,6 @@ export default function EditStudentPage() {
         }
         body.photoUrl = await createPhotoSignedUrl(supabase, path);
       }
-
-      let coords = pickupCoords;
-      if (pickupAddress.trim() && !coords) {
-        coords = await geocodeAddress(pickupAddress.trim());
-      }
-
-      const supabaseClient = createClient();
-      await supabaseClient.from('students').update({
-        pickup_address: pickupAddress.trim() || null,
-        pickup_lat: pickupAddress.trim() ? coords?.lat ?? null : null,
-        pickup_lng: pickupAddress.trim() ? coords?.lng ?? null : null,
-        trip_type: showDirectionPicker ? tripType : 'BOTH',
-      }).eq('id', id);
 
       const res = await fetch(
         `${process.env.NEXT_PUBLIC_SUPABASE_URL}/functions/v1/manage-student`,

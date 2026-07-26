@@ -19,9 +19,19 @@ const createRouteSchema = z.object({
   stops: z.array(stopInputSchema),
 });
 
+// Routes had no update path at all before this — the web dashboard could
+// only create (always as type 'BOTH', with no way to pick MORNING/AFTERNOON)
+// or delete a route, never rename it, change its type, or reassign its bus.
+const updateRouteSchema = z.object({
+  id: z.string().uuid(),
+  name: z.string().min(1).max(200).optional(),
+  type: routeTypeSchema.optional(),
+  busId: z.string().uuid().nullable().optional(),
+});
+
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Methods': 'POST, GET, DELETE, OPTIONS',
+  'Access-Control-Allow-Methods': 'POST, PATCH, GET, DELETE, OPTIONS',
   'Access-Control-Allow-Headers':
     'authorization, content-type, x-client-info, apikey',
 };
@@ -207,6 +217,99 @@ async function handleCreate(req: Request): Promise<Response> {
   );
 }
 
+async function handleUpdate(req: Request): Promise<Response> {
+  const auth = await authenticate(req);
+  if (!auth.ok) return auth.response;
+  const { supabase, schoolId } = auth;
+
+  let body: unknown;
+  try {
+    body = await req.json();
+  } catch {
+    return jsonResponse({ error: 'Invalid JSON body', statusCode: 400 }, 400);
+  }
+
+  const parseResult = updateRouteSchema.safeParse(body);
+  if (!parseResult.success) {
+    return jsonResponse(
+      {
+        error: 'Validation error',
+        statusCode: 400,
+        details: parseResult.error.issues,
+      },
+      400,
+    );
+  }
+
+  const { id, ...updates } = parseResult.data;
+
+  const { data: existing, error: existingError } = await supabase
+    .from('routes')
+    .select('id, school_id')
+    .eq('id', id)
+    .single();
+
+  if (existingError || !existing) {
+    return jsonResponse({ error: 'Route not found', statusCode: 404 }, 404);
+  }
+  if (existing.school_id !== schoolId) {
+    return jsonResponse(
+      { error: 'Route does not belong to your school', statusCode: 403 },
+      403,
+    );
+  }
+
+  if (updates.busId) {
+    const { data: bus, error: busError } = await supabase
+      .from('buses')
+      .select('id')
+      .eq('id', updates.busId)
+      .eq('school_id', schoolId)
+      .single();
+
+    if (busError || !bus) {
+      return jsonResponse(
+        {
+          error: 'Bus not found or does not belong to your school',
+          statusCode: 404,
+        },
+        404,
+      );
+    }
+  }
+
+  const updatePayload: Record<string, unknown> = {};
+  if (updates.name !== undefined) updatePayload.name = updates.name;
+  if (updates.type !== undefined) updatePayload.type = updates.type;
+  // busId is nullable (unassign the bus) vs. simply absent (leave
+  // unchanged) — 'busId' in updates distinguishes those since zod omits
+  // untouched optional keys from the parsed result entirely.
+  if ('busId' in updates) updatePayload.bus_id = updates.busId ?? null;
+
+  if (Object.keys(updatePayload).length === 0) {
+    return jsonResponse(
+      { error: 'No fields to update', statusCode: 400 },
+      400,
+    );
+  }
+
+  const { data: updated, error: updateError } = await supabase
+    .from('routes')
+    .update(updatePayload)
+    .eq('id', id)
+    .select()
+    .single();
+
+  if (updateError) {
+    return jsonResponse({ error: updateError.message, statusCode: 400 }, 400);
+  }
+
+  return jsonResponse(
+    { data: updated, message: 'Route updated' },
+    200,
+  );
+}
+
 async function handleList(req: Request): Promise<Response> {
   const auth = await authenticate(req);
   if (!auth.ok) return auth.response;
@@ -342,6 +445,8 @@ Deno.serve(async (req: Request) => {
   switch (req.method) {
     case 'POST':
       return handleCreate(req);
+    case 'PATCH':
+      return handleUpdate(req);
     case 'GET':
       return handleList(req);
     case 'DELETE':

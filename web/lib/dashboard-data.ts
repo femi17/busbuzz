@@ -100,12 +100,17 @@ export async function fetchDashboardData(supabase: SupabaseClient<any>): Promise
     { data: stopArrivalsData },
   ] = await Promise.all([
     supabase.from('buses').select('*', { count: 'exact', head: true }).eq('status', 'ACTIVE'),
-    supabase.from('students').select('*', { count: 'exact', head: true }),
+    // Retired students (is_active: false) must not inflate the headline
+    // count — buses right above this already excludes non-ACTIVE ones.
+    supabase.from('students').select('*', { count: 'exact', head: true }).eq('is_active', true),
     supabase.from('routes').select('*', { count: 'exact', head: true }),
     supabase.from('trips').select('*', { count: 'exact', head: true }).eq('status', 'ACTIVE').gte('started_at', todayStart).lt('started_at', todayEnd),
     supabase.from('trips').select('*', { count: 'exact', head: true }).eq('status', 'COMPLETED').gte('started_at', todayStart).lt('started_at', todayEnd),
     supabase.from('trips').select('id, started_at, status, bus:buses(plate_number), route:routes(name)').gte('started_at', todayStart).lt('started_at', todayEnd).order('started_at', { ascending: false }),
-    supabase.from('routes').select('id, name, type, bus:buses(plate_number), students(count)').order('name').limit(4),
+    // .eq('students.is_active', true) filters the embedded count without
+    // dropping routes that currently have zero active students (that would
+    // need students!inner instead, which excludes the parent row entirely).
+    supabase.from('routes').select('id, name, type, bus:buses(plate_number), students(count)').eq('students.is_active', true).order('name').limit(4),
     supabase.from('trips').select('started_at').gte('started_at', weekAgo).lt('started_at', todayEnd),
     supabase.from('attendance').select('status'),
     supabase.from('trip_stop_triggers').select('triggered_at, stop:stops(eta_minutes), trip:trips(started_at)').gte('triggered_at', thirtyDaysAgo),

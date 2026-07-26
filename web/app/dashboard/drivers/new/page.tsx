@@ -112,13 +112,29 @@ export default function NewDriverPage() {
 
       // Step 4: Update profile photo
       if (photoUrl) {
-        await supabase.from('profiles').update({ photo_url: photoUrl }).eq('id', driverId);
+        const { error: photoUpdateError } = await supabase
+          .from('profiles')
+          .update({ photo_url: photoUrl })
+          .eq('id', driverId);
+        if (photoUpdateError) {
+          setFormError('Driver created but failed to save the photo — add it from the drivers list.');
+          return;
+        }
       }
 
       // Step 5: Assign bus — buses.driver_id is the source of truth
-      // (profiles.assigned_bus_id mirrors it via a DB trigger).
+      // (profiles.assigned_bus_id mirrors it via a DB trigger). This used to
+      // be unchecked, so a failure here left the driver created but
+      // unassigned while the admin was told it all succeeded.
       if (assignedBusId) {
-        await supabase.from('buses').update({ driver_id: driverId }).eq('id', assignedBusId);
+        const { error: busAssignError } = await supabase
+          .from('buses')
+          .update({ driver_id: driverId })
+          .eq('id', assignedBusId);
+        if (busAssignError) {
+          setFormError('Driver created but failed to assign the bus — assign it from the drivers list.');
+          return;
+        }
       }
 
       router.push('/dashboard/drivers?created=1');

@@ -245,8 +245,18 @@ export default function StudentMapPage() {
               if (coords) {
                 lat = coords.lat;
                 lng = coords.lng;
-                // Persist so we don't geocode again next time
-                supabase.from('students').update({ pickup_lat: lat, pickup_lng: lng }).eq('id', s.id);
+                // Persist so we don't geocode again next time — this was
+                // previously fire-and-forget with the result never checked,
+                // so a failed write here was invisible and silently caused
+                // the same address to be re-geocoded (wasting Google Maps
+                // API calls) on every future page load.
+                supabase
+                  .from('students')
+                  .update({ pickup_lat: lat, pickup_lng: lng })
+                  .eq('id', s.id)
+                  .then(({ error }) => {
+                    if (error) console.warn(`Failed to cache geocoded location for student ${s.id}:`, error.message);
+                  });
               }
             }
             if (lat == null || lng == null) {

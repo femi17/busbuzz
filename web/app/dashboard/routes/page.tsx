@@ -28,9 +28,15 @@ export default async function RoutesPage({
   const { created } = await searchParams;
   const supabase = await createClient();
 
+  // .eq('students.is_active', true) filters the embedded count without
+  // dropping routes that currently have zero active students (that would
+  // need students!inner instead, which excludes the parent row entirely) —
+  // a retired student left the shown count including riders who no longer
+  // ride at all.
   const { data: routes } = await supabase
     .from('routes')
     .select('*, bus:buses(plate_number), students(count)')
+    .eq('students.is_active', true)
     .order('name');
 
   const routeRows = (routes ?? []) as unknown as RouteRow[];

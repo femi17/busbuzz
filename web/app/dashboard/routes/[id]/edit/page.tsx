@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect, type FormEvent } from 'react';
-import { useRouter } from 'next/navigation';
+import { useRouter, useParams } from 'next/navigation';
 import Link from 'next/link';
 import { createClient } from '@/lib/supabase';
 
@@ -10,12 +10,26 @@ type BusOption = {
   plate_number: string;
 };
 
+type RouteRow = {
+  id: string;
+  name: string;
+  type: 'MORNING' | 'AFTERNOON' | 'BOTH';
+  bus_id: string | null;
+};
+
 const inputClass =
   'w-full rounded-[var(--radius-btn)] border border-rule px-3 py-2.5 text-sm text-ink placeholder:text-sub focus:border-amber focus:outline-none focus:ring-1 focus:ring-amber';
 const labelClass = 'block text-sm font-medium text-ink mb-1.5';
 
-export default function NewRoutePage() {
+export default function EditRoutePage() {
   const router = useRouter();
+  const params = useParams<{ id: string }>();
+  const routeId = params.id;
+
+  const [isLoading, setIsLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [original, setOriginal] = useState<{ name: string; type: string; busId: string } | null>(null);
+
   const [name, setName] = useState('');
   const [type, setType] = useState<'MORNING' | 'AFTERNOON' | 'BOTH'>('BOTH');
   const [busId, setBusId] = useState('');
@@ -25,13 +39,31 @@ export default function NewRoutePage() {
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   useEffect(() => {
-    createClient()
-      .from('buses')
-      .select('id, plate_number')
-      .eq('status', 'ACTIVE')
-      .order('plate_number')
-      .then(({ data }) => setBuses((data ?? []) as BusOption[]));
-  }, []);
+    let isMounted = true;
+    async function load() {
+      const supabase = createClient();
+      const [{ data: route, error }, { data: busData }] = await Promise.all([
+        supabase.from('routes').select('id, name, type, bus_id').eq('id', routeId).single(),
+        supabase.from('buses').select('id, plate_number').eq('status', 'ACTIVE').order('plate_number'),
+      ]);
+      if (!isMounted) return;
+      if (error || !route) {
+        setLoadError('Route not found.');
+        setIsLoading(false);
+        return;
+      }
+      const r = route as RouteRow;
+      const initial = { name: r.name, type: r.type, busId: r.bus_id ?? '' };
+      setOriginal(initial);
+      setName(initial.name);
+      setType(initial.type as 'MORNING' | 'AFTERNOON' | 'BOTH');
+      setBusId(initial.busId);
+      setBuses((busData ?? []) as BusOption[]);
+      setIsLoading(false);
+    }
+    load();
+    return () => { isMounted = false; };
+  }, [routeId]);
 
   async function handleSubmit(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
@@ -43,6 +75,14 @@ export default function NewRoutePage() {
       return;
     }
 
+    const changed: Record<string, unknown> = { id: routeId };
+    if (original) {
+      if (name.trim() !== original.name) changed.name = name.trim();
+      if (type !== original.type) changed.type = type;
+      if (busId !== original.busId) changed.busId = busId || null;
+    }
+    if (Object.keys(changed).length === 1) { router.push('/dashboard/routes'); return; }
+
     setIsSubmitting(true);
     try {
       const supabase = createClient();
@@ -52,38 +92,56 @@ export default function NewRoutePage() {
       const response = await fetch(
         `${process.env.NEXT_PUBLIC_SUPABASE_URL}/functions/v1/manage-route`,
         {
-          method: 'POST',
+          method: 'PATCH',
           headers: {
             'Content-Type': 'application/json',
             Authorization: `Bearer ${accessToken}`,
             apikey: process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
           },
-          body: JSON.stringify({
-            name: name.trim(),
-            type,
-            busId: busId || undefined,
-            stops: [],
-          }),
+          body: JSON.stringify(changed),
         },
       );
 
       if (!response.ok) {
         const errorBody = await response.json().catch(() => null);
-        setFormError(errorBody?.error ?? 'Failed to create route');
+        setFormError(errorBody?.error ?? 'Failed to update route');
         return;
       }
 
-      router.push('/dashboard/routes?created=1');
+      router.push('/dashboard/routes');
     } finally {
       setIsSubmitting(false);
     }
   }
 
+  if (isLoading) {
+    return (
+      <div className="max-w-[480px] mx-auto">
+        <div className="mb-6"><h1 className="font-heading font-bold text-[28px] tracking-tight text-ink">Edit Route</h1></div>
+        <div className="bg-surface shadow-[var(--shadow-card)] rounded-[var(--radius-card)] p-6">
+          <p className="text-sm text-sub">Loading route details...</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (loadError) {
+    return (
+      <div className="max-w-[480px] mx-auto">
+        <div className="mb-6"><h1 className="font-heading font-bold text-[28px] tracking-tight text-ink">Edit Route</h1></div>
+        <div className="bg-surface shadow-[var(--shadow-card)] rounded-[var(--radius-card)] p-6">
+          <p className="text-sm text-red">{loadError}</p>
+          <Link href="/dashboard/routes" className="mt-3 inline-block text-sm font-medium text-sub hover:text-ink">Back to Routes</Link>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="max-w-[480px] mx-auto">
       <div className="mb-6">
-        <h1 className="font-heading font-bold text-[28px] tracking-tight text-ink">Add New Route</h1>
-        <p className="text-sm text-sub mt-1">Name the route and assign a bus</p>
+        <h1 className="font-heading font-bold text-[28px] tracking-tight text-ink">Edit Route</h1>
+        <p className="text-sm text-sub mt-1">Update route name, run, and bus assignment</p>
       </div>
 
       <div className="bg-surface shadow-[var(--shadow-card)] rounded-[var(--radius-card)] p-6">
@@ -121,8 +179,7 @@ export default function NewRoutePage() {
             <p className="text-[11px] text-sub mt-1">
               Morning &amp; Afternoon is one route that runs both legs, driven by a single saved
               stop order (the afternoon leg reverses it automatically). Pick Morning only or
-              Afternoon only for a route dedicated to a single leg — e.g. two buses splitting AM
-              and PM on the same streets.
+              Afternoon only for a route dedicated to a single leg.
             </p>
           </div>
 
@@ -154,7 +211,7 @@ export default function NewRoutePage() {
               disabled={isSubmitting}
               className="rounded-[var(--radius-btn)] bg-amber px-4 py-2.5 text-sm font-semibold text-navy hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-60 active:scale-95 transition-all duration-150"
             >
-              {isSubmitting ? 'Creating…' : 'Create Route'}
+              {isSubmitting ? 'Saving...' : 'Save Changes'}
             </button>
           </div>
         </form>

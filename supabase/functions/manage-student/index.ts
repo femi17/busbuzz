@@ -405,6 +405,36 @@ async function handleUpdate(req: Request): Promise<Response> {
   if (validated.isActive !== undefined) {
     updateObj.is_active = validated.isActive;
   }
+  if (validated.tripType !== undefined) {
+    updateObj.trip_type = validated.tripType;
+  }
+  if (validated.pickupAddress !== undefined) {
+    updateObj.pickup_address = validated.pickupAddress;
+  }
+  if (validated.pickupLat !== undefined) {
+    updateObj.pickup_lat = validated.pickupLat;
+  }
+  if (validated.pickupLng !== undefined) {
+    updateObj.pickup_lng = validated.pickupLng;
+  }
+  // Address changed but no trusted coordinates came with it (the client
+  // didn't pick a Places suggestion) — geocode server-side, same fallback
+  // handleCreate already uses, instead of leaving pickup_lat/pickup_lng
+  // stale relative to the new address.
+  if (
+    validated.pickupAddress &&
+    validated.pickupLat === undefined &&
+    validated.pickupLng === undefined
+  ) {
+    const googleMapsApiKey = Deno.env.get('GOOGLE_MAPS_API_KEY');
+    if (googleMapsApiKey) {
+      const coords = await geocodeAddress(validated.pickupAddress, googleMapsApiKey);
+      if (coords) {
+        updateObj.pickup_lat = coords.lat;
+        updateObj.pickup_lng = coords.lng;
+      }
+    }
+  }
 
   if (validated.stopId !== undefined && validated.stopId !== null) {
     const effectiveRouteId =
