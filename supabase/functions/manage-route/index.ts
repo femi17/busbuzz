@@ -190,7 +190,7 @@ async function handleCreate(req: Request): Promise<Response> {
 
   const serviceSupabase = createClient(
     Deno.env.get('SUPABASE_URL')!,
-    Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!,
+    JSON.parse(Deno.env.get('SUPABASE_SECRET_KEYS')!)['default'],
   );
 
   const { data: rpcResult, error: rpcError } = await serviceSupabase.rpc(

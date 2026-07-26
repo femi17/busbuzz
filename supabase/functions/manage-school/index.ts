@@ -145,7 +145,7 @@ async function handleOnboard(req: Request): Promise<Response> {
 
   const serviceSupabase = createClient(
     Deno.env.get('SUPABASE_URL')!,
-    Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!,
+    JSON.parse(Deno.env.get('SUPABASE_SECRET_KEYS')!)['default'],
   );
 
   // Insert school record
@@ -422,7 +422,7 @@ async function handleResetAdminPassword(
 
   const serviceSupabase = createClient(
     Deno.env.get('SUPABASE_URL')!,
-    Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!,
+    JSON.parse(Deno.env.get('SUPABASE_SECRET_KEYS')!)['default'],
   );
 
   const { error: updateAuthError } = await serviceSupabase.auth.admin.updateUserById(

@@ -100,7 +100,7 @@ Deno.serve(async (req: Request) => {
   // Service-role client for privileged writes
   const serviceSupabase = createClient(
     Deno.env.get('SUPABASE_URL')!,
-    Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!,
+    JSON.parse(Deno.env.get('SUPABASE_SECRET_KEYS')!)['default'],
   );
 
   // Verify bus exists and belongs to driver's school
@@ -275,7 +275,7 @@ Deno.serve(async (req: Request) => {
           .in('id', absentIds);
 
         const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
-        const serviceRoleKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
+        const serviceRoleKey = JSON.parse(Deno.env.get('SUPABASE_SECRET_KEYS')!)['default'];
         const internalSecret = Deno.env.get('INTERNAL_FUNCTION_SECRET')!;
 
         for (const s of (absentStudents ?? []) as Array<{
@@ -296,7 +296,6 @@ Deno.serve(async (req: Request) => {
               method: 'POST',
               headers: {
                 'Content-Type': 'application/json',
-                'Authorization': `Bearer ${serviceRoleKey}`,
                 'apikey': serviceRoleKey,
                 'X-Internal-Secret': internalSecret,
               },
@@ -324,13 +323,12 @@ Deno.serve(async (req: Request) => {
   // Tell proactively-subscribed parents the trip has started, so they begin
   // tracking instantly instead of waiting for a poll (private bus channel).
   try {
-    const serviceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
+    const serviceKey = JSON.parse(Deno.env.get('SUPABASE_SECRET_KEYS')!)['default'];
     await fetch(`${Deno.env.get('SUPABASE_URL')}/realtime/v1/api/broadcast`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
         apikey: serviceKey,
-        Authorization: `Bearer ${serviceKey}`,
       },
       body: JSON.stringify({
         messages: [
@@ -365,14 +363,13 @@ Deno.serve(async (req: Request) => {
 
       if (parentIds.length > 0) {
         const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
-        const serviceRoleKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
+        const serviceRoleKey = JSON.parse(Deno.env.get('SUPABASE_SECRET_KEYS')!)['default'];
         const internalSecret = Deno.env.get('INTERNAL_FUNCTION_SECRET')!;
 
         const pushResp = await fetch(`${supabaseUrl}/functions/v1/send-push`, {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
-            'Authorization': `Bearer ${serviceRoleKey}`,
             'apikey': serviceRoleKey,
             'X-Internal-Secret': internalSecret,
           },

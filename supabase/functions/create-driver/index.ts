@@ -95,7 +95,7 @@ Deno.serve(async (req: Request) => {
   // Step 8: Service-role client for all subsequent DB operations
   const serviceSupabase = createClient(
     Deno.env.get('SUPABASE_URL')!,
-    Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!,
+    JSON.parse(Deno.env.get('SUPABASE_SECRET_KEYS')!)['default'],
   );
 
   // Step 9: Check phone uniqueness within this school

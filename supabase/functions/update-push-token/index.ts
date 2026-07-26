@@ -77,7 +77,7 @@ Deno.serve(async (req: Request) => {
   // 7. Service-role client for the update
   const serviceSupabase = createClient(
     Deno.env.get('SUPABASE_URL')!,
-    Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!,
+    JSON.parse(Deno.env.get('SUPABASE_SECRET_KEYS')!)['default'],
   );
 
   // 8. Register the token in push_tokens — one row per device/install, so a

@@ -51,7 +51,7 @@ Deno.serve(async (req: Request) => {
   // Service-role client for all operations (no authenticated user yet)
   const serviceSupabase = createClient(
     Deno.env.get('SUPABASE_URL')!,
-    Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!,
+    JSON.parse(Deno.env.get('SUPABASE_SECRET_KEYS')!)['default'],
   );
 
   // Rate limit check: count failed attempts for this phone in last 15 minutes

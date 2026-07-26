@@ -33,7 +33,6 @@ async function pushToParents(
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        Authorization: `Bearer ${serviceRoleKey}`,
         apikey: serviceRoleKey,
         'X-Internal-Secret': internalSecret,
       },
@@ -131,7 +130,6 @@ async function broadcast(
       headers: {
         'Content-Type': 'application/json',
         apikey: serviceKey,
-        Authorization: `Bearer ${serviceKey}`,
       },
       body: JSON.stringify({
         // private: true so this lands on the authorized private channel only —
@@ -158,7 +156,7 @@ Deno.serve(async (req: Request) => {
   }
 
   const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
-  const serviceRoleKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
+  const serviceRoleKey = JSON.parse(Deno.env.get('SUPABASE_SECRET_KEYS')!)['default'];
 
   const supabase = createClient(supabaseUrl, Deno.env.get('SUPABASE_ANON_KEY')!, {
     global: { headers: { Authorization: authHeader } },

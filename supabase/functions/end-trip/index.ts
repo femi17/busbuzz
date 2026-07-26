@@ -96,7 +96,7 @@ Deno.serve(async (req: Request) => {
   // Service-role client
   const serviceSupabase = createClient(
     Deno.env.get('SUPABASE_URL')!,
-    Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!,
+    JSON.parse(Deno.env.get('SUPABASE_SECRET_KEYS')!)['default'],
   );
 
   // Load the trip
@@ -138,13 +138,12 @@ Deno.serve(async (req: Request) => {
 
   // Broadcast trip_ended on the private bus channel (non-fatal on failure)
   try {
-    const serviceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
+    const serviceKey = JSON.parse(Deno.env.get('SUPABASE_SECRET_KEYS')!)['default'];
     await fetch(`${Deno.env.get('SUPABASE_URL')}/realtime/v1/api/broadcast`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
         apikey: serviceKey,
-        Authorization: `Bearer ${serviceKey}`,
       },
       body: JSON.stringify({
         messages: [
@@ -185,14 +184,13 @@ Deno.serve(async (req: Request) => {
 
     if (parentIds.size > 0) {
       const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
-      const serviceRoleKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
+      const serviceRoleKey = JSON.parse(Deno.env.get('SUPABASE_SECRET_KEYS')!)['default'];
       const internalSecret = Deno.env.get('INTERNAL_FUNCTION_SECRET')!;
 
       const pushResp = await fetch(`${supabaseUrl}/functions/v1/send-push`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': `Bearer ${serviceRoleKey}`,
           'apikey': serviceRoleKey,
           'X-Internal-Secret': internalSecret,
         },

@@ -104,7 +104,7 @@ Deno.serve(async (req: Request) => {
   // Service-role client
   const serviceSupabase = createClient(
     Deno.env.get('SUPABASE_URL')!,
-    Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!,
+    JSON.parse(Deno.env.get('SUPABASE_SECRET_KEYS')!)['default'],
   );
 
   // Load bus
@@ -253,7 +253,7 @@ Deno.serve(async (req: Request) => {
 
   // Push to admins and parents (distinct copy) — non-fatal on failure.
   const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
-  const serviceRoleKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
+  const serviceRoleKey = JSON.parse(Deno.env.get('SUPABASE_SECRET_KEYS')!)['default'];
   const internalSecret = Deno.env.get('INTERNAL_FUNCTION_SECRET')!;
 
   async function sendSosPush(userIds: string[], title: string, bodyText: string) {
@@ -263,7 +263,6 @@ Deno.serve(async (req: Request) => {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': `Bearer ${serviceRoleKey}`,
           'apikey': serviceRoleKey,
           'X-Internal-Secret': internalSecret,
         },

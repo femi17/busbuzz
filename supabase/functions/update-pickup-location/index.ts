@@ -124,7 +124,7 @@ Deno.serve(async (req: Request) => {
   // Service-role client for the privileged write
   const serviceSupabase = createClient(
     Deno.env.get('SUPABASE_URL')!,
-    Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!,
+    JSON.parse(Deno.env.get('SUPABASE_SECRET_KEYS')!)['default'],
   );
 
   // Sanity-check the dropped pin against the student's school before saving.
