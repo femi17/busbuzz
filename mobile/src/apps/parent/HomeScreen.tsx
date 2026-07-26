@@ -51,7 +51,13 @@ const LAGOS_LAT = 6.5244;
 const LAGOS_LNG = 3.3792;
 const APPROACH_RADIUS_M = 300;
 const POLL_INTERVAL_MS = 30000;
+// City-wide fallback zoom for the placeholder Lagos coordinate, used only
+// when neither the child's saved pickup spot nor their school is known yet.
 const DEFAULT_ZOOM = 13;
+// Zoom once a real location (pickup spot, stop, school, or the live bus) is
+// known — was inconsistently 15 in some places and unset (falling through
+// to DEFAULT_ZOOM) in others.
+const LIVE_ZOOM = 14;
 const MAX_BREADCRUMB_POINTS = 500;
 
 // @rnmapbox/maps' generated .d.ts for ShapeSource merges two mismatched
@@ -518,7 +524,7 @@ export default function HomeScreen() {
     if (center) {
       cameraRef.current?.setCamera({
         centerCoordinate: center,
-        zoomLevel: 15,
+        zoomLevel: LIVE_ZOOM,
         animationDuration: 800,
       });
     }
@@ -1119,7 +1125,7 @@ export default function HomeScreen() {
             ref={cameraRef}
             defaultSettings={{
               centerCoordinate: initialCameraCenter,
-              zoomLevel: hasRealInitialCenter ? 15 : DEFAULT_ZOOM,
+              zoomLevel: hasRealInitialCenter ? LIVE_ZOOM : DEFAULT_ZOOM,
             }}
           />
 

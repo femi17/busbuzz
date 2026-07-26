@@ -48,6 +48,14 @@ export type PickupPin = {
   label: string;
 };
 
+// A fixed street-level zoom the camera holds steady at, matching the
+// parent app's live-tracking view — was previously recomputed on every GPS
+// fix via fitBounds (below), which zoomed in and out unpredictably as the
+// distance between the bus, the current stop, and pickup pins changed
+// while driving, instead of behaving like a normal follow-the-vehicle nav
+// view.
+const LIVE_ZOOM = 14;
+
 function buildLineFeature(points: LatLng[]): GeoJSON.Feature<GeoJSON.LineString> {
   return {
     type: 'Feature',
@@ -76,33 +84,22 @@ export function AttendanceMap({
 }) {
   const cameraRef = useRef<ElementRef<typeof Camera> | null>(null);
 
-  // Keep the bus and the current stop framed together, padded clear of the
-  // floating card. Re-fits on every fix — the phone is mounted, nobody is
-  // pinch-zooming mid-drive.
+  // Follow the bus at a fixed zoom — falls back to the current stop, then
+  // the first pickup pin, before the first GPS fix arrives. Re-centers on
+  // every fix; the phone is mounted, nobody is pinch-zooming mid-drive.
   useEffect(() => {
-    const focus: LatLng[] = [];
-    if (busPosition) focus.push(busPosition);
-    if (currentStop) focus.push({ lat: currentStop.latitude, lng: currentStop.longitude });
-    for (const pin of pickupPins) focus.push({ lat: pin.lat, lng: pin.lng });
+    const center: LatLng | null =
+      busPosition ??
+      (currentStop ? { lat: currentStop.latitude, lng: currentStop.longitude } : null) ??
+      (pickupPins[0] ? { lat: pickupPins[0].lat, lng: pickupPins[0].lng } : null);
 
-    if (focus.length === 0) return;
-    if (focus.length === 1) {
-      cameraRef.current?.setCamera({
-        centerCoordinate: [focus[0].lng, focus[0].lat],
-        zoomLevel: 15,
-        animationDuration: 600,
-      });
-      return;
-    }
+    if (!center) return;
 
-    const lngs = focus.map((p) => p.lng);
-    const lats = focus.map((p) => p.lat);
-    cameraRef.current?.fitBounds(
-      [Math.max(...lngs), Math.max(...lats)],
-      [Math.min(...lngs), Math.min(...lats)],
-      [110, 60, 340, 60],
-      700,
-    );
+    cameraRef.current?.setCamera({
+      centerCoordinate: [center.lng, center.lat],
+      zoomLevel: LIVE_ZOOM,
+      animationDuration: 600,
+    });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [currentStop?.id, busPosition?.lat, busPosition?.lng]);
 
@@ -118,7 +115,7 @@ export function AttendanceMap({
     >
       <Camera
         ref={cameraRef}
-        defaultSettings={{ centerCoordinate: initialCenter, zoomLevel: 14 }}
+        defaultSettings={{ centerCoordinate: initialCenter, zoomLevel: LIVE_ZOOM }}
       />
 
       {/* The road ahead: bus → current stop → every remaining stop */}

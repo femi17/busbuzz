@@ -28,9 +28,19 @@ import {
   BusFrontIcon,
   CheckIcon,
 } from './components/Icons';
+import type { LatLng } from './AttendanceMap';
 import type { DriverStackParamList } from './DriverApp';
 import { stopGPSBroadcast } from './gpsService';
+import { fetchRoadRoute } from './roadRoute';
 import { color, radius, space } from './theme';
+
+// Re-fetch the road-snapped route once the bus has drifted this far from
+// where the last successful fetch was made — not on every ~10s GPS ping,
+// which would be both wasteful and pointless (the road-snapped line barely
+// changes for a 10-20m nudge). A stop being reached/completed always
+// triggers a re-fetch regardless of distance, since the waypoints
+// themselves changed.
+const REROUTE_DISTANCE_M = 80;
 
 // Synthetic id for the school end of the run — the school is not an authored
 // route stop, but the run starts/ends there.
@@ -485,6 +495,10 @@ export default function AttendanceScreen({ navigation, route }: Props) {
       : []),
   ];
 
+  // Straight-line connector through the same waypoints the road-snapped
+  // fetch below uses — shown immediately (a trip's very first frame, or
+  // while a fetch is in flight) so the driver never sees no line at all,
+  // even though it cuts corners a real road wouldn't.
   const routeLinePoints = useMemo(() => {
     const pts: Array<{ lat: number; lng: number }> = [];
     if (busPosition) pts.push(busPosition);
@@ -495,6 +509,45 @@ export default function AttendanceScreen({ navigation, route }: Props) {
     return pts;
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [busPosition?.lat, busPosition?.lng, currentStop?.id, attendanceMap]);
+
+  // Road-snapped version of the same line, via Mapbox Directions — re-fetched
+  // only when the stop waypoints change (a stop was reached/completed) or the
+  // bus has drifted REROUTE_DISTANCE_M from where the last fetch was made,
+  // not on every GPS ping. Falls back to the straight-line connector above
+  // until the first fetch resolves, and again if a later fetch fails (a
+  // stale-but-road-accurate line beats reverting to the straight one).
+  const [roadRoutePoints, setRoadRoutePoints] = useState<LatLng[] | null>(null);
+  const lastRoutedRef = useRef<{ signature: string; lat: number; lng: number } | null>(null);
+  const isRoutingRef = useRef(false);
+
+  useEffect(() => {
+    if (!busPosition || routeLinePoints.length < 2) return;
+
+    const stopSignature = `${currentStop?.id ?? ''}|${upcomingStops.map((s) => s.id).join(',')}`;
+    const last = lastRoutedRef.current;
+    const stopsChanged = !last || last.signature !== stopSignature;
+    const driftedFar =
+      !last ||
+      haversineDistance(busPosition.lat, busPosition.lng, last.lat, last.lng) > REROUTE_DISTANCE_M;
+
+    if (!stopsChanged && !driftedFar) return;
+    if (isRoutingRef.current) return;
+
+    const token = process.env.EXPO_PUBLIC_MAPBOX_TOKEN;
+    if (!token) return;
+
+    isRoutingRef.current = true;
+    lastRoutedRef.current = { signature: stopSignature, lat: busPosition.lat, lng: busPosition.lng };
+
+    fetchRoadRoute(routeLinePoints, token)
+      .then((points) => {
+        if (points) setRoadRoutePoints(points);
+      })
+      .finally(() => {
+        isRoutingRef.current = false;
+      });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [routeLinePoints, currentStop?.id]);
 
   // Only students with a real saved pickup location get a pin — showing a
   // fallback here (e.g. the school) would send the driver to the wrong door.
@@ -633,7 +686,7 @@ export default function AttendanceScreen({ navigation, route }: Props) {
       {AttendanceMapModule ? (
         <AttendanceMapModule.AttendanceMap
           initialCenter={initialCenter}
-          routeLinePoints={routeLinePoints}
+          routeLinePoints={roadRoutePoints ?? routeLinePoints}
           upcomingStops={upcomingStops}
           currentStop={currentStop && stopHasCoords(currentStop) ? currentStop : null}
           pickupPins={pickupPins}
