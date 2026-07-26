@@ -587,7 +587,15 @@ export default function TodayScreen({ navigation }: Props) {
             }
             accessibilityRole="button"
             accessibilityLabel={
-              state.runDirection === 'AFTERNOON'
+              // Matches PickupOrderScreen's own isDropoffOrder check
+              // (routeType === 'AFTERNOON'), not the current leg
+              // (runDirection) — a BOTH route only ever has one saved
+              // sequence, always framed as "the pickup order" and
+              // auto-reversed for its afternoon leg (see PickupOrderScreen's
+              // header comment), so this card used to promise "Drop-off
+              // order" for a BOTH route's afternoon run and then land on a
+              // screen titled "PICKUP ORDER."
+              state.routeType === 'AFTERNOON'
                 ? 'Arrange drop-off order'
                 : 'Arrange pickup order'
             }
@@ -597,7 +605,7 @@ export default function TodayScreen({ navigation }: Props) {
             </View>
             <View style={styles.locMeta}>
               <Text style={styles.locLabel}>
-                {state.runDirection === 'AFTERNOON' ? 'Drop-off order' : 'Pickup order'}
+                {state.routeType === 'AFTERNOON' ? 'Drop-off order' : 'Pickup order'}
               </Text>
               {state.unarrangedCount > 0 ? (
                 <Text style={styles.locValueAttention}>

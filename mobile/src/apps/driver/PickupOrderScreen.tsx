@@ -314,10 +314,11 @@ const styles = StyleSheet.create({
     fontWeight: '800',
     marginTop: 2,
   },
+  // 44px meets the standard minimum touch-target guideline — was 38px.
   closeButton: {
-    width: 38,
-    height: 38,
-    borderRadius: 19,
+    width: 44,
+    height: 44,
+    borderRadius: 22,
     backgroundColor: 'rgba(255,255,255,0.12)',
     alignItems: 'center',
     justifyContent: 'center',
