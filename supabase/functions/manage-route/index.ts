@@ -301,7 +301,8 @@ async function handleUpdate(req: Request): Promise<Response> {
     .single();
 
   if (updateError) {
-    return jsonResponse({ error: updateError.message, statusCode: 400 }, 400);
+    console.error('[manage-route] update failed:', updateError.message);
+    return jsonResponse({ error: 'Failed to update route', statusCode: 400 }, 400);
   }
 
   return jsonResponse(
@@ -322,8 +323,9 @@ async function handleList(req: Request): Promise<Response> {
     .order('sequence', { referencedTable: 'stops' });
 
   if (routesError) {
+    console.error('[manage-route] list failed:', routesError.message);
     return jsonResponse(
-      { error: routesError.message, statusCode: 500 },
+      { error: 'Failed to load routes', statusCode: 500 },
       500,
     );
   }
@@ -388,8 +390,9 @@ async function handleDelete(req: Request): Promise<Response> {
     .eq('route_id', id);
 
   if (studentCountError) {
+    console.error('[manage-route] student count check failed:', studentCountError.message);
     return jsonResponse(
-      { error: studentCountError.message, statusCode: 500 },
+      { error: 'Failed to delete route', statusCode: 500 },
       500,
     );
   }
@@ -418,8 +421,9 @@ async function handleDelete(req: Request): Promise<Response> {
         404,
       );
     }
+    console.error('[manage-route] delete failed:', deleteError.message);
     return jsonResponse(
-      { error: deleteError.message, statusCode: 400 },
+      { error: 'Failed to delete route', statusCode: 400 },
       400,
     );
   }

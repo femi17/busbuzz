@@ -116,6 +116,19 @@ Deno.serve(async (req: Request) => {
 
   const today = lagosToday();
 
+  // Was the student already in the state this call is asking for? A parent
+  // double-tapping "report" (or a scripted session hammering this endpoint)
+  // would otherwise re-send the admin/driver/co-parent push every single
+  // time, even though nothing about the absence actually changed.
+  const { data: existingAbsence } = await service
+    .from('student_absences')
+    .select('student_id')
+    .eq('student_id', studentId)
+    .eq('absence_date', today)
+    .maybeSingle();
+  const stateChanged =
+    action === 'report' ? !existingAbsence : !!existingAbsence;
+
   if (action === 'report') {
     const { error: upsertError } = await service
       .from('student_absences')
@@ -138,13 +151,14 @@ Deno.serve(async (req: Request) => {
   }
 
   // Notify the school admins, the route's driver, and any OTHER parent
-  // linked to this student (non-fatal on failure). Without that last group,
+  // linked to this student (non-fatal on failure, and skipped entirely when
+  // nothing changed — see stateChanged above). Without that last group,
   // a student with two linked parent accounts left the reporting parent's
   // co-parent with zero signal that the child was marked absent — not at
   // report time, and not later either, since the auto-ABSENT mark this
   // creates at trip start (see start-trip) bypasses mark-attendance's own
   // push entirely.
-  try {
+  if (stateChanged) try {
     const { data: admins } = await service
       .from('profiles')
       .select('id')

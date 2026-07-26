@@ -221,6 +221,27 @@ Deno.serve(async (req: Request) => {
     return jsonResponse({ error: 'Trip does not belong to this bus', statusCode: 400 }, 400);
   }
 
+  // Minimum spacing between pings for this trip. The driver app pings every
+  // EXPO_PUBLIC_GPS_INTERVAL_MS (10s) by design — nothing enforced that
+  // server-side, so a compromised or scripted driver session could flood
+  // this endpoint far faster, growing trip_locations and fanning out
+  // Realtime broadcasts + geofence pushes without limit.
+  const MIN_PING_INTERVAL_MS = 3000;
+  const { data: lastLocation } = await service
+    .from('trip_locations')
+    .select('recorded_at')
+    .eq('trip_id', validated.tripId)
+    .order('recorded_at', { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  if (lastLocation) {
+    const sinceLastMs =
+      new Date(validated.timestamp).getTime() - new Date(lastLocation.recorded_at).getTime();
+    if (sinceLastMs >= 0 && sinceLastMs < MIN_PING_INTERVAL_MS) {
+      return jsonResponse({ error: 'Too many location updates', statusCode: 429 }, 429);
+    }
+  }
+
   // Store the breadcrumb
   const { error: insertError } = await service.from('trip_locations').insert({
     trip_id: validated.tripId,

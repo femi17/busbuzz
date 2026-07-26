@@ -164,6 +164,18 @@ Deno.serve(async (req: Request) => {
 
   const markedAt = new Date().toISOString();
 
+  // Was this student already at this status on this trip? A driver
+  // re-tapping the same button (or a compromised/scripted session hammering
+  // this endpoint) would otherwise re-send the parent push every single
+  // time, since upsert always "succeeds" whether or not anything changed.
+  const { data: existingAttendance } = await serviceSupabase
+    .from('attendance')
+    .select('status')
+    .eq('trip_id', validated.tripId)
+    .eq('student_id', validated.studentId)
+    .maybeSingle();
+  const statusChanged = existingAttendance?.status !== validated.status;
+
   // Upsert attendance record
   const { error: upsertError } = await serviceSupabase
     .from('attendance')
@@ -214,8 +226,12 @@ Deno.serve(async (req: Request) => {
     console.error('[mark-attendance] Realtime broadcast failed:', err);
   }
 
-  // Notify parents for all statuses (non-fatal on failure)
-  try {
+  // Notify parents for all statuses (non-fatal on failure) — skip entirely
+  // if the status didn't actually change (a re-tap of the same button, or a
+  // compromised/scripted session hammering this endpoint, would otherwise
+  // re-send the parent push every single time since upsert always
+  // "succeeds" whether or not anything changed).
+  if (statusChanged) try {
     const { data: parentLinks, error: parentLinksError } =
       await serviceSupabase
         .from('student_parents')

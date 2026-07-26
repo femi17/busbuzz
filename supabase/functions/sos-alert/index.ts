@@ -6,6 +6,14 @@ const sosAlertSchema = z.object({
   busId: z.string().uuid(),
 });
 
+// Without a cooldown, a compromised or malicious driver session could call
+// this endpoint repeatedly with nothing stopping it — each call blasts a
+// loud arrival-alarm-channel push to every school admin, every super admin,
+// and every parent on the route. The trip is still flagged has_sos and the
+// location still recorded on every call (so the "breakdown" status and map
+// pin always stay current); only the notification blast itself is limited.
+const SOS_NOTIFY_COOLDOWN_MINUTES = 5;
+
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Methods': 'POST, OPTIONS',
@@ -132,10 +140,17 @@ Deno.serve(async (req: Request) => {
   // Where did the breakdown happen? Use the active trip's latest GPS ping.
   const { data: activeTrip } = await serviceSupabase
     .from('trips')
-    .select('id, route_id')
+    .select('id, route_id, sos_notified_at')
     .eq('bus_id', validated.busId)
     .eq('status', 'ACTIVE')
     .maybeSingle();
+
+  const lastNotifiedAt = activeTrip?.sos_notified_at
+    ? new Date(activeTrip.sos_notified_at).getTime()
+    : null;
+  const withinCooldown =
+    lastNotifiedAt !== null &&
+    Date.now() - lastNotifiedAt < SOS_NOTIFY_COOLDOWN_MINUTES * 60_000;
 
   let locationText = '';
   let sosLat: number | null = null;
@@ -214,6 +229,26 @@ Deno.serve(async (req: Request) => {
       { data: { sent: false }, message: 'No one to notify' },
       200,
     );
+  }
+
+  if (withinCooldown) {
+    return jsonResponse(
+      {
+        data: { sent: false, cooldown: true },
+        message: `An SOS alert for this trip was already sent within the last ${SOS_NOTIFY_COOLDOWN_MINUTES} minutes — status and location were still updated.`,
+      },
+      200,
+    );
+  }
+
+  if (activeTrip) {
+    const { error: cooldownStampError } = await serviceSupabase
+      .from('trips')
+      .update({ sos_notified_at: new Date().toISOString() })
+      .eq('id', activeTrip.id);
+    if (cooldownStampError) {
+      console.error('[sos-alert] Failed to stamp sos_notified_at:', cooldownStampError);
+    }
   }
 
   // Push to admins and parents (distinct copy) — non-fatal on failure.

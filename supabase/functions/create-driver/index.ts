@@ -107,8 +107,9 @@ Deno.serve(async (req: Request) => {
     .eq('school_id', adminSchoolId);
 
   if (checkError) {
+    console.error('[create-driver] phone uniqueness check failed:', checkError.message);
     return jsonResponse(
-      { error: checkError.message, statusCode: 500 },
+      { error: 'Failed to create driver', statusCode: 500 },
       500,
     );
   }

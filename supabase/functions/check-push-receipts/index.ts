@@ -15,8 +15,10 @@ import { createClient } from 'npm:@supabase/supabase-js@2';
 // to check instead (app.settings.service_role_key and Supabase Vault both
 // come back empty on this project, and there's no tool available to set an
 // Edge Function secret programmatically). Open invocation's worst case is
-// wasted Expo API calls, which this self-limits by no-oping when
-// push_receipts is empty.
+// wasted Expo API calls — bounded by MAX_RECEIPTS_PER_RUN, a no-op when
+// push_receipts is empty, and (below) a self-throttle via function_run_state
+// that rejects re-invocation within MIN_RUN_INTERVAL_SECONDS regardless of
+// who or what is calling.
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -57,6 +59,26 @@ Deno.serve(async (req: Request) => {
     Deno.env.get('SUPABASE_URL')!,
     Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!,
   );
+
+  // Self-throttle. This function has no caller auth (see header comment), so
+  // without this a repeated/scripted invocation could burn Expo API quota
+  // in a tight loop. The cron job that legitimately triggers this runs on a
+  // multi-minute schedule, so a short cooldown doesn't affect it.
+  const MIN_RUN_INTERVAL_SECONDS = 20;
+  const { data: runState } = await supabase
+    .from('function_run_state')
+    .select('last_run_at')
+    .eq('function_name', 'check-push-receipts')
+    .maybeSingle();
+  if (
+    runState &&
+    Date.now() - new Date(runState.last_run_at).getTime() < MIN_RUN_INTERVAL_SECONDS * 1000
+  ) {
+    return jsonResponse({ data: { checked: 0, staleTokensCleared: 0 }, message: 'Throttled' }, 200);
+  }
+  await supabase
+    .from('function_run_state')
+    .upsert({ function_name: 'check-push-receipts', last_run_at: new Date().toISOString() });
 
   const { data: pending, error: pendingError } = await supabase
     .from('push_receipts')

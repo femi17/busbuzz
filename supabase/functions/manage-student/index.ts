@@ -348,8 +348,9 @@ async function handleCreate(
     .single();
 
   if (insertError) {
+    console.error('[manage-student] create failed:', insertError.message);
     return jsonResponse(
-      { error: insertError.message, statusCode: 500 },
+      { error: 'Failed to create student', statusCode: 500 },
       500,
     );
   }
@@ -530,8 +531,9 @@ async function handleUpdate(req: Request): Promise<Response> {
         404,
       );
     }
+    console.error('[manage-student] update failed:', updateError.message);
     return jsonResponse(
-      { error: updateError.message, statusCode: 400 },
+      { error: 'Failed to update student', statusCode: 400 },
       400,
     );
   }
@@ -573,8 +575,9 @@ async function handleBulkImport(
     .eq('school_id', schoolId);
 
   if (routesError) {
+    console.error('[manage-student] bulk import route lookup failed:', routesError.message);
     return jsonResponse(
-      { error: routesError.message, statusCode: 500 },
+      { error: 'Failed to import students', statusCode: 500 },
       500,
     );
   }
@@ -667,8 +670,9 @@ async function handleBulkImport(
       .insert(toInsert);
 
     if (insertError) {
+      console.error('[manage-student] bulk insert failed:', insertError.message);
       return jsonResponse(
-        { error: insertError.message, statusCode: 500 },
+        { error: 'Failed to import students', statusCode: 500 },
         500,
       );
     }
@@ -816,8 +820,9 @@ async function handleList(req: Request): Promise<Response> {
     .order('name');
 
   if (studentsError) {
+    console.error('[manage-student] list failed:', studentsError.message);
     return jsonResponse(
-      { error: studentsError.message, statusCode: 500 },
+      { error: 'Failed to load students', statusCode: 500 },
       500,
     );
   }

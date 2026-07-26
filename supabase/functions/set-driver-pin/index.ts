@@ -133,8 +133,9 @@ Deno.serve(async (req: Request) => {
     );
 
   if (upsertError) {
+    console.error('[set-driver-pin] upsert failed:', upsertError.message);
     return jsonResponse(
-      { error: upsertError.message, statusCode: 500 },
+      { error: 'Failed to set PIN', statusCode: 500 },
       500,
     );
   }

@@ -13,6 +13,20 @@ const corsHeaders = {
 const EXPO_PUSH_URL =
   Deno.env.get('EXPO_PUSH_URL') ?? 'https://exp.host/--/api/v2/push/send';
 
+// Constant-time string compare for the internal secret check below — a
+// plain !== leaks timing information proportional to how many leading
+// characters match, which in theory helps an attacker brute-force the
+// secret character by character. Impractical to exploit over a real
+// network, but free to close.
+function timingSafeEqual(a: string, b: string): boolean {
+  if (a.length !== b.length) return false;
+  let diff = 0;
+  for (let i = 0; i < a.length; i++) {
+    diff |= a.charCodeAt(i) ^ b.charCodeAt(i);
+  }
+  return diff === 0;
+}
+
 // Expo accepts at most 100 messages per request.
 const EXPO_BATCH_SIZE = 100;
 
@@ -85,7 +99,7 @@ Deno.serve(async (req: Request) => {
 
   const internalSecretHeader = req.headers.get('X-Internal-Secret');
   const internalSecretEnv = Deno.env.get('INTERNAL_FUNCTION_SECRET');
-  if (!internalSecretHeader || !internalSecretEnv || internalSecretHeader !== internalSecretEnv) {
+  if (!internalSecretHeader || !internalSecretEnv || !timingSafeEqual(internalSecretHeader, internalSecretEnv)) {
     return jsonResponse({ error: 'Forbidden', statusCode: 403 }, 403);
   }
 

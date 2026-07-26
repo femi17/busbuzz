@@ -160,7 +160,8 @@ async function handleOnboard(req: Request): Promise<Response> {
     .single();
 
   if (insertError) {
-    return jsonResponse({ error: insertError.message, statusCode: 500 }, 500);
+    console.error('[manage-school] insert failed:', insertError.message);
+    return jsonResponse({ error: 'Failed to onboard school', statusCode: 500 }, 500);
   }
 
   // Geocode the school address via Google Geocoding API (best-effort; never fails school creation)
@@ -351,7 +352,8 @@ async function handlePatch(req: Request): Promise<Response> {
     .single();
 
   if (updateError) {
-    return jsonResponse({ error: updateError.message, statusCode: 400 }, 400);
+    console.error('[manage-school] update failed:', updateError.message);
+    return jsonResponse({ error: 'Failed to update school', statusCode: 400 }, 400);
   }
 
   return jsonResponse(
@@ -408,7 +410,8 @@ async function handleResetAdminPassword(
     .maybeSingle();
 
   if (adminError) {
-    return jsonResponse({ error: adminError.message, statusCode: 500 }, 500);
+    console.error('[manage-school] admin lookup failed:', adminError.message);
+    return jsonResponse({ error: 'Failed to reset admin password', statusCode: 500 }, 500);
   }
   if (!admin) {
     return jsonResponse(
@@ -428,8 +431,9 @@ async function handleResetAdminPassword(
   );
 
   if (updateAuthError) {
+    console.error('[manage-school] password reset failed:', updateAuthError.message);
     return jsonResponse(
-      { error: updateAuthError.message, statusCode: 500 },
+      { error: 'Failed to reset admin password', statusCode: 500 },
       500,
     );
   }
@@ -473,7 +477,8 @@ async function handleGet(req: Request): Promise<Response> {
     .order('created_at', { ascending: false });
 
   if (schoolsError) {
-    return jsonResponse({ error: schoolsError.message, statusCode: 500 }, 500);
+    console.error('[manage-school] list failed:', schoolsError.message);
+    return jsonResponse({ error: 'Failed to load schools', statusCode: 500 }, 500);
   }
 
   const { data: admins, error: adminsError } = await supabase
@@ -482,7 +487,8 @@ async function handleGet(req: Request): Promise<Response> {
     .eq('role', 'SCHOOL_ADMIN');
 
   if (adminsError) {
-    return jsonResponse({ error: adminsError.message, statusCode: 500 }, 500);
+    console.error('[manage-school] admin list failed:', adminsError.message);
+    return jsonResponse({ error: 'Failed to load schools', statusCode: 500 }, 500);
   }
 
   // Build a map from school_id to the first SCHOOL_ADMIN found for that school

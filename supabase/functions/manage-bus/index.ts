@@ -155,8 +155,9 @@ async function handleCreate(req: Request): Promise<Response> {
         409,
       );
     }
+    console.error('[manage-bus] insert failed:', insertError.message);
     return jsonResponse(
-      { error: insertError.message, statusCode: 400 },
+      { error: 'Failed to create bus', statusCode: 400 },
       400,
     );
   }
@@ -237,8 +238,9 @@ async function handleUpdate(req: Request): Promise<Response> {
         409,
       );
     }
+    console.error('[manage-bus] update failed:', updateError.message);
     return jsonResponse(
-      { error: updateError.message, statusCode: 400 },
+      { error: 'Failed to update bus', statusCode: 400 },
       400,
     );
   }
@@ -290,8 +292,9 @@ async function handleRetire(req: Request): Promise<Response> {
         404,
       );
     }
+    console.error('[manage-bus] retire failed:', retireError.message);
     return jsonResponse(
-      { error: retireError.message, statusCode: 400 },
+      { error: 'Failed to retire bus', statusCode: 400 },
       400,
     );
   }
