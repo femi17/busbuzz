@@ -224,7 +224,10 @@ export async function fetchSchoolAnalytics(
       .select('id, is_active, route_id, stop_id, student_parents(count)')
       .eq('school_id', schoolId),
     supabase.from('profiles').select('id').eq('role', 'DRIVER').eq('is_active', true).eq('school_id', schoolId),
-    supabase.from('driver_pins').select('driver_id'),
+    // Scoped to this school's drivers via the embedded join filter — this used
+    // to select every driver_pins row on the platform and filter client-side,
+    // re-fetching every other school's PIN rows on every single-school page view.
+    supabase.from('driver_pins').select('driver_id, driver:profiles!inner(school_id)').eq('driver.school_id', schoolId),
     supabase
       .from('semester_awards')
       .select('winner_name, winner_avg_board_seconds, period_start, period_end, leaderboard, computed_at')

@@ -78,6 +78,24 @@ export const onboardSchoolSchema = z.object({
 
 export type OnboardSchoolInput = z.infer<typeof onboardSchoolSchema>;
 
+// A super admin has no self-service way to recover a school admin's
+// forgotten/lost credentials post-onboarding — this backs the "Reset
+// Password" action on the school edit page, resetting via
+// auth.admin.updateUserById (service role) rather than requiring the
+// school admin's own session.
+export const resetSchoolAdminPasswordSchema = z.object({
+  action: z.literal('reset-admin-password'),
+  schoolId: uuidSchema,
+  newPassword: z
+    .string()
+    .min(8, 'Password must be at least 8 characters')
+    .max(100),
+});
+
+export type ResetSchoolAdminPasswordInput = z.infer<
+  typeof resetSchoolAdminPasswordSchema
+>;
+
 // ----- Bus schemas -----
 
 export const createBusSchema = z.object({

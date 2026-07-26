@@ -10,6 +10,7 @@ type ProfileData = {
   name: string;
   phone: string | null;
   school_id: string | null;
+  role: string;
 };
 
 type SchoolData = {
@@ -58,12 +59,17 @@ export default function SettingsPage() {
         if (userError || !userData.user) { setLoadError('Failed to load user data. Please refresh the page.'); return; }
         const userId = userData.user.id;
         setUserEmail(userData.user.email ?? '');
-        const { data: profileData, error: profileError } = await supabase.from('profiles').select('id, name, phone, school_id').eq('id', userId).single();
+        const { data: profileData, error: profileError } = await supabase.from('profiles').select('id, name, phone, school_id, role').eq('id', userId).single();
         if (profileError || !profileData) { setLoadError('Failed to load profile data. Please refresh the page.'); return; }
         setProfile(profileData as ProfileData);
         setDisplayName(profileData.name ?? '');
         setPhone(profileData.phone ?? '');
-        if (!profileData.school_id) { setLoadError('No school is associated with this account.'); return; }
+        // Super admins have no school of their own (their world is
+        // cross-school — see dashboard/page.tsx) — that used to fail this
+        // entire page with "No school is associated with this account",
+        // hiding My Account / Change Password / Sign Out too. School Profile
+        // is simply skipped for them instead; everything else still loads.
+        if (!profileData.school_id) { return; }
         const { data: schoolData, error: schoolError } = await supabase.from('schools').select('id, name, address, logo_url').eq('id', profileData.school_id).single();
         if (schoolError || !schoolData) { setLoadError('Failed to load school data. Please refresh the page.'); return; }
         setSchool(schoolData as SchoolData);
@@ -178,55 +184,60 @@ export default function SettingsPage() {
 
   return (
     <div className="max-w-[1200px] mx-auto">
-      <DashboardHeader title="Settings" subtitle="School profile and account" />
+      <DashboardHeader
+        title="Settings"
+        subtitle={school ? 'School profile and account' : 'Account settings'}
+      />
 
       <div className="mx-auto flex max-w-2xl flex-col gap-6">
-        {/* School Profile */}
-        <div className="bg-surface shadow-[var(--shadow-card)] rounded-[var(--radius-card)] p-6">
-          <h2 className="font-heading font-bold text-[18px] tracking-tight text-ink">School Profile</h2>
-          <form onSubmit={handleSchoolSave} className="mt-5 flex flex-col gap-4">
-            {schoolSaveState === 'success' && (
-              <div className="rounded-[var(--radius-btn)] border border-green/20 bg-green-bg px-4 py-3 text-sm text-green">
-                School profile saved successfully.
-              </div>
-            )}
-            {schoolSaveState === 'error' && schoolSaveError && (
-              <div className="rounded-[var(--radius-btn)] border border-red/30 bg-red-bg px-4 py-3 text-sm text-red">
-                {schoolSaveError}
-              </div>
-            )}
-            <div>
-              <label className={labelClass}>School Name</label>
-              <input type="text" value={schoolName} onChange={(e) => setSchoolName(e.target.value)} required className={inputClass} />
-            </div>
-            <div>
-              <label className={labelClass}>Address</label>
-              <input type="text" value={schoolAddress} onChange={(e) => setSchoolAddress(e.target.value)} required className={inputClass} />
-            </div>
-            <div>
-              <label className={labelClass}>Logo</label>
-              {school?.logo_url && !logoFile && (
-                <img src={school.logo_url} alt="School logo" width={80} height={80} className="mb-3 h-20 w-20 rounded-[var(--radius-btn)] border border-rule object-cover" />
+        {/* School Profile — skipped entirely for super admins, who have no school of their own */}
+        {school && (
+          <div className="bg-surface shadow-[var(--shadow-card)] rounded-[var(--radius-card)] p-6">
+            <h2 className="font-heading font-bold text-[18px] tracking-tight text-ink">School Profile</h2>
+            <form onSubmit={handleSchoolSave} className="mt-5 flex flex-col gap-4">
+              {schoolSaveState === 'success' && (
+                <div className="rounded-[var(--radius-btn)] border border-green/20 bg-green-bg px-4 py-3 text-sm text-green">
+                  School profile saved successfully.
+                </div>
               )}
-              <input
-                type="file"
-                accept="image/jpeg,image/png,image/webp,image/svg+xml"
-                onChange={(e: ChangeEvent<HTMLInputElement>) => setLogoFile(e.target.files?.[0] ?? null)}
-                className="text-sm text-sub"
-              />
-              {logoFile && <p className="mt-1 text-xs text-sub">New file: {logoFile.name}</p>}
-            </div>
-            <div className="flex justify-end">
-              <button
-                type="submit"
-                disabled={schoolSaveState === 'saving'}
-                className="rounded-[var(--radius-btn)] bg-amber px-4 py-2.5 text-sm font-semibold text-navy hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-60 active:scale-95 transition-all duration-150"
-              >
-                {schoolSaveState === 'saving' ? 'Saving...' : 'Save Changes'}
-              </button>
-            </div>
-          </form>
-        </div>
+              {schoolSaveState === 'error' && schoolSaveError && (
+                <div className="rounded-[var(--radius-btn)] border border-red/30 bg-red-bg px-4 py-3 text-sm text-red">
+                  {schoolSaveError}
+                </div>
+              )}
+              <div>
+                <label className={labelClass}>School Name</label>
+                <input type="text" value={schoolName} onChange={(e) => setSchoolName(e.target.value)} required className={inputClass} />
+              </div>
+              <div>
+                <label className={labelClass}>Address</label>
+                <input type="text" value={schoolAddress} onChange={(e) => setSchoolAddress(e.target.value)} required className={inputClass} />
+              </div>
+              <div>
+                <label className={labelClass}>Logo</label>
+                {school.logo_url && !logoFile && (
+                  <img src={school.logo_url} alt="School logo" width={80} height={80} className="mb-3 h-20 w-20 rounded-[var(--radius-btn)] border border-rule object-cover" />
+                )}
+                <input
+                  type="file"
+                  accept="image/jpeg,image/png,image/webp,image/svg+xml"
+                  onChange={(e: ChangeEvent<HTMLInputElement>) => setLogoFile(e.target.files?.[0] ?? null)}
+                  className="text-sm text-sub"
+                />
+                {logoFile && <p className="mt-1 text-xs text-sub">New file: {logoFile.name}</p>}
+              </div>
+              <div className="flex justify-end">
+                <button
+                  type="submit"
+                  disabled={schoolSaveState === 'saving'}
+                  className="rounded-[var(--radius-btn)] bg-amber px-4 py-2.5 text-sm font-semibold text-navy hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-60 active:scale-95 transition-all duration-150"
+                >
+                  {schoolSaveState === 'saving' ? 'Saving...' : 'Save Changes'}
+                </button>
+              </div>
+            </form>
+          </div>
+        )}
 
         {/* My Account */}
         <div className="bg-surface shadow-[var(--shadow-card)] rounded-[var(--radius-card)] p-6">

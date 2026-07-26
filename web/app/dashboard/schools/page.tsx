@@ -1,5 +1,5 @@
 import Link from 'next/link';
-import { School, MoreHorizontal } from 'lucide-react';
+import { School, Pencil } from 'lucide-react';
 import { createClient } from '@/lib/supabase-server';
 import { DashboardHeader } from '@/components/dashboard/DashboardHeader';
 import { Pagination } from '@/components/dashboard/Pagination';
@@ -135,7 +135,11 @@ export default async function SchoolsPage({
                 const admin = adminMap.get(school.id) ?? null;
                 return (
                   <tr key={school.id} className="group border-b border-rule last:border-0 bg-surface hover:bg-canvas/60 transition-colors duration-100">
-                    <td className="px-5 py-3 text-[14px] text-ink font-medium">{school.name}</td>
+                    <td className="px-5 py-3 text-[14px] font-medium">
+                      <Link href={`/dashboard/schools/${school.id}`} className="text-ink hover:text-amber-dark transition-colors duration-100">
+                        {school.name}
+                      </Link>
+                    </td>
                     <td className="px-5 py-3 text-[14px] text-ink">{school.address}</td>
                     <td className="px-5 py-3"><StatusBadge isActive={school.is_active} /></td>
                     <td className="px-5 py-3 text-[14px] text-ink">
@@ -150,9 +154,13 @@ export default async function SchoolsPage({
                     </td>
                     <td className="px-5 py-3">
                       <div className="flex items-center gap-2 opacity-100 lg:opacity-0 lg:group-hover:opacity-100 transition-opacity duration-100">
-                        <button type="button" className="text-sub hover:text-ink transition-colors duration-100" aria-label="More options">
-                          <MoreHorizontal size={16} />
-                        </button>
+                        <Link
+                          href={`/dashboard/schools/${school.id}/edit`}
+                          className="inline-flex items-center gap-1.5 text-[12px] font-medium text-sub hover:text-ink transition-colors duration-100"
+                        >
+                          <Pencil size={13} strokeWidth={2} />
+                          Edit
+                        </Link>
                       </div>
                     </td>
                   </tr>

@@ -1,9 +1,13 @@
 import { createClient, type SupabaseClient } from 'npm:@supabase/supabase-js@2';
-import { onboardSchoolSchema } from '../../../shared/schemas.ts';
+import {
+  onboardSchoolSchema,
+  updateSchoolSchema,
+  resetSchoolAdminPasswordSchema,
+} from '../../../shared/schemas.ts';
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Methods': 'POST, GET, OPTIONS',
+  'Access-Control-Allow-Methods': 'POST, PATCH, GET, OPTIONS',
   'Access-Control-Allow-Headers':
     'authorization, content-type, x-client-info, apikey',
 };
@@ -68,7 +72,53 @@ async function authenticateSuperAdmin(
   return { ok: true, supabase };
 }
 
-async function handlePost(req: Request): Promise<Response> {
+// Lagos-biased geocode, shared by school creation and address edits.
+// Best-effort: a failed/absent lookup never blocks the write, it just
+// leaves latitude/longitude unset (create) or unchanged (edit).
+async function geocodeSchoolAddress(
+  address: string,
+): Promise<{ lat: number; lng: number } | null> {
+  const googleMapsApiKey = Deno.env.get('GOOGLE_MAPS_API_KEY');
+  if (!googleMapsApiKey) return null;
+  try {
+    const geocodeUrl =
+      // Lagos State bounding box (approx, south,west|north,east) — BusBuzz only
+      // serves Lagos schools, so bias results here rather than resolving ambiguous
+      // place names (e.g. "Ejigbo") to same-named locations elsewhere in Nigeria.
+      `https://maps.googleapis.com/maps/api/geocode/json?address=${encodeURIComponent(address)}&region=ng&bounds=6.35,2.7|6.70,4.33&key=${googleMapsApiKey}`;
+    const geocodeRes = await fetch(geocodeUrl);
+    if (!geocodeRes.ok) {
+      console.warn(
+        `Google geocoding returned non-OK status ${geocodeRes.status} for address: ${address}`,
+      );
+      return null;
+    }
+    const geocodeJson = await geocodeRes.json() as {
+      status: string;
+      results?: Array<{
+        geometry: { location: { lat: number; lng: number } };
+      }>;
+    };
+    const result = geocodeJson.results?.[0];
+    if (geocodeJson.status === 'OK' && result?.geometry?.location) {
+      return { lat: result.geometry.location.lat, lng: result.geometry.location.lng };
+    }
+    if (geocodeJson.status !== 'ZERO_RESULTS') {
+      console.warn(
+        `Google geocoding returned status ${geocodeJson.status} for address: ${address}`,
+      );
+    }
+    return null;
+  } catch (geocodeErr) {
+    console.warn(
+      `Google geocoding failed for address "${address}":`,
+      (geocodeErr as Error).message,
+    );
+    return null;
+  }
+}
+
+async function handleOnboard(req: Request): Promise<Response> {
   const auth = await authenticateSuperAdmin(req);
   if (!auth.ok) return auth.response;
 
@@ -114,46 +164,9 @@ async function handlePost(req: Request): Promise<Response> {
   }
 
   // Geocode the school address via Google Geocoding API (best-effort; never fails school creation)
-  let geocodedLat: number | null = null;
-  let geocodedLng: number | null = null;
-
-  const googleMapsApiKey = Deno.env.get('GOOGLE_MAPS_API_KEY');
-  if (googleMapsApiKey) {
-    try {
-      const geocodeUrl =
-        // Lagos State bounding box (approx, south,west|north,east) — BusBuzz only
-        // serves Lagos schools, so bias results here rather than resolving ambiguous
-        // place names (e.g. "Ejigbo") to same-named locations elsewhere in Nigeria.
-        `https://maps.googleapis.com/maps/api/geocode/json?address=${encodeURIComponent(validated.schoolAddress)}&region=ng&bounds=6.35,2.7|6.70,4.33&key=${googleMapsApiKey}`;
-      const geocodeRes = await fetch(geocodeUrl);
-      if (geocodeRes.ok) {
-        const geocodeJson = await geocodeRes.json() as {
-          status: string;
-          results?: Array<{
-            geometry: { location: { lat: number; lng: number } };
-          }>;
-        };
-        const result = geocodeJson.results?.[0];
-        if (geocodeJson.status === 'OK' && result?.geometry?.location) {
-          geocodedLat = result.geometry.location.lat;
-          geocodedLng = result.geometry.location.lng;
-        } else if (geocodeJson.status !== 'ZERO_RESULTS') {
-          console.warn(
-            `Google geocoding returned status ${geocodeJson.status} for address: ${validated.schoolAddress}`,
-          );
-        }
-      } else {
-        console.warn(
-          `Google geocoding returned non-OK status ${geocodeRes.status} for address: ${validated.schoolAddress}`,
-        );
-      }
-    } catch (geocodeErr) {
-      console.warn(
-        `Google geocoding failed for address "${validated.schoolAddress}":`,
-        (geocodeErr as Error).message,
-      );
-    }
-  }
+  const geocoded = await geocodeSchoolAddress(validated.schoolAddress);
+  let geocodedLat = geocoded?.lat ?? null;
+  let geocodedLng = geocoded?.lng ?? null;
 
   if (geocodedLat !== null && geocodedLng !== null) {
     const { error: coordUpdateError } = await serviceSupabase
@@ -262,6 +275,193 @@ async function handlePost(req: Request): Promise<Response> {
   );
 }
 
+// Schools had no update path at all before this — a super admin could
+// onboard a school but never fix a typo'd name/address, replace the logo,
+// or deactivate/reactivate it. RLS's schools_update_super_admin policy
+// already permitted this at the DB level; nothing on the frontend or here
+// used it.
+async function handlePatch(req: Request): Promise<Response> {
+  const auth = await authenticateSuperAdmin(req);
+  if (!auth.ok) return auth.response;
+  const { supabase } = auth;
+
+  let body: unknown;
+  try {
+    body = await req.json();
+  } catch {
+    return jsonResponse({ error: 'Invalid JSON body', statusCode: 400 }, 400);
+  }
+
+  const parseResult = updateSchoolSchema.safeParse(body);
+  if (!parseResult.success) {
+    return jsonResponse(
+      {
+        error: 'Validation error',
+        statusCode: 400,
+        details: parseResult.error.issues,
+      },
+      400,
+    );
+  }
+
+  const { id, ...updates } = parseResult.data;
+
+  const { data: existing, error: existingError } = await supabase
+    .from('schools')
+    .select('id, address')
+    .eq('id', id)
+    .single();
+
+  if (existingError || !existing) {
+    return jsonResponse({ error: 'School not found', statusCode: 404 }, 404);
+  }
+
+  const updatePayload: Record<string, unknown> = {};
+  if (updates.name !== undefined) updatePayload.name = updates.name;
+  if (updates.address !== undefined) updatePayload.address = updates.address;
+  // logoUrl is nullable (clear the logo) vs. simply absent (leave
+  // unchanged) — 'logoUrl' in updates distinguishes those since zod omits
+  // untouched optional keys from the parsed result entirely.
+  if ('logoUrl' in updates) updatePayload.logo_url = updates.logoUrl ?? null;
+  if (updates.isActive !== undefined) updatePayload.is_active = updates.isActive;
+
+  // Address changed — re-geocode so the school's map position stays
+  // accurate. Best-effort: on failure, keep the previous coordinates
+  // rather than nulling out a working location over a transient API error.
+  if (updates.address !== undefined && updates.address !== existing.address) {
+    const geocoded = await geocodeSchoolAddress(updates.address);
+    if (geocoded) {
+      updatePayload.latitude = geocoded.lat;
+      updatePayload.longitude = geocoded.lng;
+    }
+  }
+
+  if (Object.keys(updatePayload).length === 0) {
+    return jsonResponse(
+      { error: 'No fields to update', statusCode: 400 },
+      400,
+    );
+  }
+
+  const { data: updated, error: updateError } = await supabase
+    .from('schools')
+    .update(updatePayload)
+    .eq('id', id)
+    .select()
+    .single();
+
+  if (updateError) {
+    return jsonResponse({ error: updateError.message, statusCode: 400 }, 400);
+  }
+
+  return jsonResponse(
+    {
+      data: {
+        id: updated.id,
+        name: updated.name,
+        address: updated.address,
+        logoUrl: updated.logo_url ?? null,
+        isActive: updated.is_active,
+        latitude: updated.latitude ?? null,
+        longitude: updated.longitude ?? null,
+      },
+      message: 'School updated',
+    },
+    200,
+  );
+}
+
+// A super admin had no way to recover a school admin's forgotten password
+// after onboarding — the admin's own Settings page can change it, but if
+// they're locked out (forgotten password, no working email access) there
+// was no recovery path. Resets via auth.admin.updateUserById, which
+// requires the service role key and bypasses the admin's own session.
+async function handleResetAdminPassword(
+  req: Request,
+  body: Record<string, unknown>,
+): Promise<Response> {
+  const auth = await authenticateSuperAdmin(req);
+  if (!auth.ok) return auth.response;
+  const { supabase } = auth;
+
+  const parseResult = resetSchoolAdminPasswordSchema.safeParse(body);
+  if (!parseResult.success) {
+    return jsonResponse(
+      {
+        error: 'Validation error',
+        statusCode: 400,
+        details: parseResult.error.issues,
+      },
+      400,
+    );
+  }
+
+  const { schoolId, newPassword } = parseResult.data;
+
+  const { data: admin, error: adminError } = await supabase
+    .from('profiles')
+    .select('id, name, email')
+    .eq('school_id', schoolId)
+    .eq('role', 'SCHOOL_ADMIN')
+    .order('created_at', { ascending: true })
+    .limit(1)
+    .maybeSingle();
+
+  if (adminError) {
+    return jsonResponse({ error: adminError.message, statusCode: 500 }, 500);
+  }
+  if (!admin) {
+    return jsonResponse(
+      { error: 'No admin account found for this school', statusCode: 404 },
+      404,
+    );
+  }
+
+  const serviceSupabase = createClient(
+    Deno.env.get('SUPABASE_URL')!,
+    Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!,
+  );
+
+  const { error: updateAuthError } = await serviceSupabase.auth.admin.updateUserById(
+    admin.id,
+    { password: newPassword },
+  );
+
+  if (updateAuthError) {
+    return jsonResponse(
+      { error: updateAuthError.message, statusCode: 500 },
+      500,
+    );
+  }
+
+  return jsonResponse(
+    {
+      data: { adminId: admin.id, adminName: admin.name, adminEmail: admin.email },
+      message: 'Admin password reset',
+    },
+    200,
+  );
+}
+
+async function handlePost(req: Request): Promise<Response> {
+  // Onboarding (the original, still-default behaviour) has no `action`
+  // field on its body, matching manage-student's action-discriminator
+  // convention — read the body once here and dispatch, since
+  // handleResetAdminPassword needs the already-parsed body too.
+  let body: Record<string, unknown>;
+  try {
+    body = (await req.clone().json()) as Record<string, unknown>;
+  } catch {
+    return jsonResponse({ error: 'Invalid JSON body', statusCode: 400 }, 400);
+  }
+
+  if (body.action === 'reset-admin-password') {
+    return handleResetAdminPassword(req, body);
+  }
+
+  return handleOnboard(req);
+}
+
 async function handleGet(req: Request): Promise<Response> {
   const auth = await authenticateSuperAdmin(req);
   if (!auth.ok) return auth.response;
@@ -316,6 +516,8 @@ Deno.serve(async (req: Request) => {
   switch (req.method) {
     case 'POST':
       return handlePost(req);
+    case 'PATCH':
+      return handlePatch(req);
     case 'GET':
       return handleGet(req);
     default:
