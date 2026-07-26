@@ -9,7 +9,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { supabase } from '../../lib/supabase';
 import { CHILD_COLOR_PALETTE, getChildColors, setChildColor } from './childColors';
-import { BellIcon, SchoolIcon } from './components/Icons';
+import { BellIcon, ChevronIcon } from './components/Icons';
 import { ConfirmDialog } from './components/ConfirmDialog';
 import type { MainStackParamList, ParentTabParamList } from './ParentApp';
 import { getPushPermissionStatus, registerForPushNotifications } from './pushNotifications';
@@ -251,7 +251,9 @@ export default function ProfileScreen() {
                 </Text>
               </View>
             ) : null}
-            <Text style={styles.chevron}>›</Text>
+            <View style={styles.chevron}>
+              <ChevronIcon size={16} color={color.ledger400} />
+            </View>
           </Pressable>
 
           <Pressable
@@ -260,13 +262,15 @@ export default function ProfileScreen() {
             disabled={isRegisteringPush}
           >
             <View style={styles.actionIconWrap}>
-              <SchoolIcon size={18} color={color.ledger700} />
+              <BellIcon size={18} color={color.ledger700} />
             </View>
             <Text style={styles.actionLabel}>Push notifications</Text>
             <Text style={styles.actionValue}>
               {isRegisteringPush ? 'Requesting…' : pushEnabled ? 'On' : 'Turn on'}
             </Text>
-            <Text style={styles.chevron}>›</Text>
+            <View style={styles.chevron}>
+              <ChevronIcon size={16} color={color.ledger400} />
+            </View>
           </Pressable>
         </View>
 
@@ -331,8 +335,7 @@ const styles = StyleSheet.create({
     marginBottom: space.xl,
   },
   sectionLabel: {
-    ...type.eyebrow,
-    fontSize: 11,
+    ...type.eyebrowSm,
     color: color.ledger400,
     marginBottom: space.sm,
     marginLeft: space.xs,
@@ -456,9 +459,12 @@ const styles = StyleSheet.create({
     color: color.ledger400,
     marginRight: space.xs,
   },
+  // ChevronIcon points down by default (see components/Icons.tsx); rotated
+  // -90deg here to point right, matching a standard disclosure indicator —
+  // was a plain "›" text glyph before, which rendered in the system font
+  // and looked stylistically foreign next to the app's hand-drawn icon set.
   chevron: {
-    fontSize: 20,
-    color: color.ledger400,
+    transform: [{ rotate: '-90deg' }],
     marginLeft: space.xs,
   },
   unreadBadge: {

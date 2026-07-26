@@ -137,13 +137,25 @@ Deno.serve(async (req: Request) => {
     }
   }
 
-  // Notify the school admins and the route's driver (non-fatal on failure).
+  // Notify the school admins, the route's driver, and any OTHER parent
+  // linked to this student (non-fatal on failure). Without that last group,
+  // a student with two linked parent accounts left the reporting parent's
+  // co-parent with zero signal that the child was marked absent — not at
+  // report time, and not later either, since the auto-ABSENT mark this
+  // creates at trip start (see start-trip) bypasses mark-attendance's own
+  // push entirely.
   try {
     const { data: admins } = await service
       .from('profiles')
       .select('id')
       .eq('school_id', student.school_id)
       .eq('role', 'SCHOOL_ADMIN');
+
+    const { data: coParents } = await service
+      .from('student_parents')
+      .select('parent_id')
+      .eq('student_id', studentId)
+      .neq('parent_id', userData.user.id);
 
     const routeRow = Array.isArray(student.route) ? student.route[0] : student.route;
     const busRow = routeRow
@@ -154,6 +166,7 @@ Deno.serve(async (req: Request) => {
     const recipientIds = [
       ...(admins ?? []).map((a: { id: string }) => a.id),
       ...(driverId ? [driverId] : []),
+      ...(coParents ?? []).map((p: { parent_id: string }) => p.parent_id),
     ];
 
     if (recipientIds.length > 0) {

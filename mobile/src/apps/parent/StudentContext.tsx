@@ -107,7 +107,12 @@ export function StudentProvider({ children }: { children: ReactNode }) {
           routeName: s.routes?.name ?? null,
           pickupLat: s.pickup_lat,
           pickupLng: s.pickup_lng,
-        }));
+        }))
+        // The query has no ORDER BY, so Postgres doesn't guarantee row order
+        // — without this, which child ends up "first" (the default
+        // selection, and — since child colors are assigned by array index —
+        // which color each gets) could silently shift between app loads.
+        .sort((a, b) => a.name.localeCompare(b.name));
 
       setStudents(records);
 

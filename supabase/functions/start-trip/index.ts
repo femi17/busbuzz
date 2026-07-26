@@ -166,6 +166,20 @@ Deno.serve(async (req: Request) => {
     );
   }
 
+  // Which run is this? Dedicated routes carry their own direction; a BOTH
+  // route uses the client-sent direction, falling back to the local clock
+  // (Africa/Lagos, UTC+1 — the edge runtime clock is UTC). Resolved before
+  // the insert below so it can be persisted on the trip row itself — it used
+  // to only ever exist as a local variable here, so nothing downstream
+  // (mark-attendance's push text, the parent app's "dropped off at
+  // school"/"at home" label) could tell a morning run from an afternoon one
+  // on a BOTH-type route once the trip existed.
+  const lagosHour = (new Date().getUTCHours() + 1) % 24;
+  const direction: 'MORNING' | 'AFTERNOON' =
+    route.type === 'MORNING' || route.type === 'AFTERNOON'
+      ? route.type
+      : validated.direction ?? (lagosHour < 12 ? 'MORNING' : 'AFTERNOON');
+
   // Insert new trip
   const { data: trip, error: tripInsertError } = await serviceSupabase
     .from('trips')
@@ -175,6 +189,7 @@ Deno.serve(async (req: Request) => {
       driver_id: userData.user.id,
       status: 'ACTIVE',
       started_at: new Date().toISOString(),
+      direction,
     })
     .select('*')
     .single();
@@ -199,15 +214,6 @@ Deno.serve(async (req: Request) => {
       500,
     );
   }
-
-  // Which run is this? Dedicated routes carry their own direction; a BOTH
-  // route uses the client-sent direction, falling back to the local clock
-  // (Africa/Lagos, UTC+1 — the edge runtime clock is UTC).
-  const lagosHour = (new Date().getUTCHours() + 1) % 24;
-  const direction: 'MORNING' | 'AFTERNOON' =
-    route.type === 'MORNING' || route.type === 'AFTERNOON'
-      ? route.type
-      : validated.direction ?? (lagosHour < 12 ? 'MORNING' : 'AFTERNOON');
 
   // Load students riding THIS journey, in the driver-arranged pickup order
   // (unarranged students sort last, then by name). The afternoon drop order is
@@ -256,6 +262,59 @@ Deno.serve(async (req: Request) => {
           })),
           { onConflict: 'trip_id,student_id' },
         );
+
+        // mark-attendance is the only other place that upserts `attendance`,
+        // and it always pushes the parents afterward — this bulk path wrote
+        // straight to the table and skipped that, so a co-parent who didn't
+        // file the original absence report (report-absence only tells
+        // admins/driver/other parents at report time) had no way to learn
+        // it actually applied to today's real trip.
+        const { data: absentStudents } = await serviceSupabase
+          .from('students')
+          .select('id, name, student_parents(parent_id)')
+          .in('id', absentIds);
+
+        const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
+        const serviceRoleKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
+        const internalSecret = Deno.env.get('INTERNAL_FUNCTION_SECRET')!;
+
+        for (const s of (absentStudents ?? []) as Array<{
+          id: string;
+          name: string;
+          student_parents: Array<{ parent_id: string }> | { parent_id: string } | null;
+        }>) {
+          const sp = s.student_parents;
+          const parentIds = Array.isArray(sp)
+            ? sp.map((p) => p.parent_id).filter(Boolean)
+            : sp?.parent_id
+            ? [sp.parent_id]
+            : [];
+          if (parentIds.length === 0) continue;
+
+          try {
+            const pushResp = await fetch(`${supabaseUrl}/functions/v1/send-push`, {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${serviceRoleKey}`,
+                'apikey': serviceRoleKey,
+                'X-Internal-Secret': internalSecret,
+              },
+              body: JSON.stringify({
+                userIds: parentIds,
+                title: 'Bus Update',
+                body: `${s.name} is marked absent for today's run \u{2014} the driver will skip their stop.`,
+                data: { type: 'attendance', tripId: trip.id, studentId: s.id, status: 'ABSENT' },
+                channelId: 'trip-updates',
+              }),
+            });
+            if (!pushResp.ok) {
+              console.error(`[start-trip] absence send-push returned ${pushResp.status}`);
+            }
+          } catch (err) {
+            console.error('[start-trip] absence send-push failed:', err);
+          }
+        }
       }
     }
   } catch (err) {
@@ -286,6 +345,52 @@ Deno.serve(async (req: Request) => {
     });
   } catch (err) {
     console.error('[start-trip] Realtime broadcast failed:', err);
+  }
+
+  // Also push it — Realtime only reaches an app that's already connected
+  // (open, or recently backgrounded). A parent whose app isn't running gets
+  // no signal at all that the bus has left until the first per-stop
+  // "approaching" push, which for a stop near the start of the route can be
+  // only a minute or two of warning.
+  try {
+    const studentIds = (students ?? []).map((s) => s.id);
+    if (studentIds.length > 0) {
+      const { data: parentRows } = await serviceSupabase
+        .from('student_parents')
+        .select('parent_id')
+        .in('student_id', studentIds);
+      const parentIds = Array.from(
+        new Set((parentRows ?? []).map((p: { parent_id: string }) => p.parent_id)),
+      );
+
+      if (parentIds.length > 0) {
+        const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
+        const serviceRoleKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
+        const internalSecret = Deno.env.get('INTERNAL_FUNCTION_SECRET')!;
+
+        const pushResp = await fetch(`${supabaseUrl}/functions/v1/send-push`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${serviceRoleKey}`,
+            'apikey': serviceRoleKey,
+            'X-Internal-Secret': internalSecret,
+          },
+          body: JSON.stringify({
+            userIds: parentIds,
+            title: '\u{1F68C} Bus is on the way',
+            body: `${route.name} has started its run — track it live in the app.`,
+            data: { type: 'trip-started', tripId: trip.id, routeId: trip.route_id },
+            channelId: 'trip-updates',
+          }),
+        });
+        if (!pushResp.ok) {
+          console.error(`[start-trip] trip-started send-push returned ${pushResp.status}`);
+        }
+      }
+    }
+  } catch (err) {
+    console.error('[start-trip] trip-started push failed:', err);
   }
 
   return jsonResponse(

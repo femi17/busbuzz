@@ -13,6 +13,7 @@ import {
 
 import { otpRequestSchema } from '../../../../../shared/schemas';
 import { supabase } from '../../../lib/supabase';
+import { ChevronIcon } from '../components/Icons';
 import { clearLastParentEmail } from '../lastParentEmail';
 import { color, radius, space, type } from '../theme';
 import type { OnboardingStackParamList } from './OnboardingNavigator';
@@ -77,7 +78,9 @@ export default function EmailEntryScreen({ navigation, route }: Props) {
       behavior={Platform.OS === 'ios' ? 'padding' : undefined}
     >
       <Pressable style={styles.backButton} onPress={() => navigation.navigate('Welcome')}>
-        <Text style={styles.backArrow}>←</Text>
+        <View style={styles.backArrow}>
+          <ChevronIcon size={20} color={color.white} />
+        </View>
       </Pressable>
 
       <View style={styles.content}>
@@ -145,9 +148,11 @@ const styles = StyleSheet.create({
     height: 40,
     justifyContent: 'center',
   },
+  // ChevronIcon points down by default; rotated 90deg to point left, for
+  // "back" — was a plain "←" text glyph before, rendered in the system font
+  // instead of the app's hand-drawn icon set.
   backArrow: {
-    fontSize: 24,
-    color: color.white,
+    transform: [{ rotate: '90deg' }],
   },
   content: {
     flex: 1,

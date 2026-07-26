@@ -2,6 +2,7 @@ import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { useCallback, useEffect, useState } from 'react';
 import {
   ActivityIndicator,
+  Image,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -22,6 +23,7 @@ type ChildRecord = {
   name: string;
   class_name: string;
   photo_url: string | null;
+  is_active: boolean;
   schools: { name: string } | null;
   routes: { name: string } | null;
 };
@@ -56,7 +58,7 @@ export default function ChildConfirmationScreen({ navigation }: Props) {
       const { data, error: queryError } = await supabase
         .from('student_parents')
         .select(
-          'students(id, name, class_name, photo_url, schools(name), routes(name))',
+          'students(id, name, class_name, photo_url, is_active, schools(name), routes(name))',
         )
         .eq('parent_id', user.id);
 
@@ -66,9 +68,12 @@ export default function ChildConfirmationScreen({ navigation }: Props) {
         return;
       }
 
+      // Same is_active filter StudentContext applies for the main app — a
+      // withdrawn/inactive student shouldn't be shown for confirmation here
+      // even though this query doesn't otherwise scope by it.
       const records = (data ?? [])
         .map((row: any) => row.students)
-        .filter(Boolean) as ChildRecord[];
+        .filter((s: ChildRecord | null): s is ChildRecord => !!s && s.is_active);
 
       setChildren(records);
       setIsLoading(false);
@@ -171,7 +176,7 @@ export default function ChildConfirmationScreen({ navigation }: Props) {
             <TicketCard notchColor={color.ink900}>
               <View style={styles.mainRow}>
                 {child.photo_url ? (
-                  <View style={styles.avatarPhoto} />
+                  <Image source={{ uri: child.photo_url }} style={styles.avatarPhoto} />
                 ) : (
                   <View style={styles.avatar}>
                     <Text style={styles.avatarText}>{getInitials(child.name)}</Text>
@@ -203,7 +208,9 @@ export default function ChildConfirmationScreen({ navigation }: Props) {
 
         {showWrongMessage ? (
           <Text style={styles.wrongMessage}>
-            Contact your school's office to correct this information.
+            Contact your school's office to correct this information. If it's
+            fixed, come back here and confirm — otherwise this screen will
+            keep showing what the school has on file.
           </Text>
         ) : null}
 
@@ -215,10 +222,10 @@ export default function ChildConfirmationScreen({ navigation }: Props) {
           style={({ pressed }) => [
             styles.confirmButton,
             pressed && styles.confirmButtonPressed,
-            isSubmitting && styles.confirmButtonDisabled,
+            (isSubmitting || showWrongMessage) && styles.confirmButtonDisabled,
           ]}
           onPress={handleConfirm}
-          disabled={isSubmitting}
+          disabled={isSubmitting || showWrongMessage}
         >
           {isSubmitting ? (
             <ActivityIndicator color={color.ink900} />
@@ -229,8 +236,14 @@ export default function ChildConfirmationScreen({ navigation }: Props) {
           )}
         </Pressable>
 
-        <Pressable onPress={() => setShowWrongMessage(true)}>
-          <Text style={styles.wrongButtonText}>Something's wrong</Text>
+        {/* Flagging it as wrong disables the confirm button above so a
+            parent can't tap through onboarding with data they just said was
+            wrong — tapping this again undoes the flag, in case they tapped
+            it by mistake or the school just fixed it. */}
+        <Pressable onPress={() => setShowWrongMessage((prev) => !prev)}>
+          <Text style={styles.wrongButtonText}>
+            {showWrongMessage ? "Never mind, it's correct" : "Something's wrong"}
+          </Text>
         </Pressable>
       </View>
     </View>

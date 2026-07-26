@@ -817,8 +817,7 @@ const styles = StyleSheet.create({
     color: color.ledger700,
   },
   tripDuration: {
-    ...type.data,
-    fontSize: 12.5,
+    ...type.dataSm,
     color: color.ledger400,
   },
   tripRouteName: {
@@ -1057,8 +1056,7 @@ const styles = StyleSheet.create({
     borderColor: color.white,
   },
   timeLabel: {
-    ...type.data,
-    fontSize: 12.5,
+    ...type.dataSm,
     color: color.ledger400,
   },
 });

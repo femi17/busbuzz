@@ -82,6 +82,19 @@ export const type = {
     letterSpacing: 1.6,
     textTransform: 'uppercase' as const,
   },
+  // Compact in-card labels (a card's own field labels, a section header
+  // inside a list) used to just override eyebrow's fontSize down to 10 or
+  // 11 ad hoc, keeping the 1.6 letterSpacing that was tuned for 12px — at
+  // 10-11px that tracking reads noticeably gappier, so the same "label"
+  // role looked inconsistent from screen to screen. One real second step
+  // instead, with proportionally tighter tracking.
+  eyebrowSm: {
+    fontSize: 10,
+    lineHeight: 12,
+    fontWeight: '700' as const,
+    letterSpacing: 1.1,
+    textTransform: 'uppercase' as const,
+  },
   bodyLg: {
     fontSize: 16,
     lineHeight: 22,
@@ -95,6 +108,17 @@ export const type = {
   data: {
     fontSize: 15,
     lineHeight: 20,
+    fontWeight: '700' as const,
+    letterSpacing: 0.2,
+    fontVariant: ['tabular-nums'] as NonNullable<TextStyle['fontVariant']>,
+  },
+  // Small numeric/timestamp text (timeline entries, list timestamps, replay
+  // durations) used to each pick their own one-off fontSize off of `data`
+  // (11, 12, 12.5, 13 all showed up for what was functionally the same
+  // "small data" role). One consistent step instead.
+  dataSm: {
+    fontSize: 12,
+    lineHeight: 16,
     fontWeight: '700' as const,
     letterSpacing: 0.2,
     fontVariant: ['tabular-nums'] as NonNullable<TextStyle['fontVariant']>,

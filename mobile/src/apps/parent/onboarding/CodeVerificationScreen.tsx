@@ -241,7 +241,6 @@ const styles = StyleSheet.create({
   },
   headline: {
     ...type.displayMd,
-    fontSize: 22,
     color: color.white,
     textAlign: 'center',
   },

@@ -80,11 +80,24 @@ Deno.serve(async (req: Request) => {
     Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!,
   );
 
-  // 8. Update profile
+  // 8. Register the token in push_tokens — one row per device/install, so a
+  // profile signed into two devices gets pushes on both instead of the
+  // second registration silently overwriting the first (the old behaviour,
+  // back when this was a single profiles.expo_push_token column). The
+  // unique constraint is on the token itself: if this exact token was
+  // previously registered under a different profile (device handed off,
+  // reinstall under a different login), this hands delivery over to the new
+  // owner instead of leaving a stale row still pointing at the old one.
   const { error: updateError } = await serviceSupabase
-    .from('profiles')
-    .update({ expo_push_token: validated.expoPushToken })
-    .eq('id', userData.user.id);
+    .from('push_tokens')
+    .upsert(
+      {
+        profile_id: userData.user.id,
+        expo_push_token: validated.expoPushToken,
+        updated_at: new Date().toISOString(),
+      },
+      { onConflict: 'expo_push_token' },
+    );
 
   if (updateError) {
     return jsonResponse(

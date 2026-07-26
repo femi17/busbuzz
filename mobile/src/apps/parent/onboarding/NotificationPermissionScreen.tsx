@@ -1,10 +1,10 @@
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
-import * as Notifications from 'expo-notifications';
 import { useState } from 'react';
 import { ActivityIndicator, Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { supabase } from '../../../lib/supabase';
 import { BackpackIcon, BellIcon, BusIcon, SchoolIcon } from '../components/Icons';
+import { registerForPushNotifications } from '../pushNotifications';
 import { color, radius, space, type } from '../theme';
 import type { OnboardingStackParamList } from './OnboardingNavigator';
 
@@ -19,32 +19,6 @@ const ROWS = [
   { Icon: SchoolIcon, text: 'Get notified when they arrive safely at school' },
 ];
 
-async function registerPushToken() {
-  try {
-    const {
-      data: { session },
-    } = await supabase.auth.getSession();
-
-    if (!session) return;
-
-    const tokenResponse = await Notifications.getExpoPushTokenAsync();
-    const supabaseUrl = process.env.EXPO_PUBLIC_SUPABASE_URL;
-
-    if (!supabaseUrl) return;
-
-    await fetch(`${supabaseUrl}/functions/v1/update-push-token`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${session.access_token}`,
-      },
-      body: JSON.stringify({ expoPushToken: tokenResponse.data }),
-    });
-  } catch {
-    // Non-fatal — push registration failure should not block onboarding
-  }
-}
-
 export default function NotificationPermissionScreen({ navigation }: Props) {
   const [isLoading, setIsLoading] = useState(false);
 
@@ -52,10 +26,20 @@ export default function NotificationPermissionScreen({ navigation }: Props) {
     setIsLoading(true);
 
     try {
-      const { status } = await Notifications.requestPermissionsAsync();
+      // registerForPushNotifications (pushNotifications.ts) both requests
+      // permission and — critically — creates the Android notification
+      // channels (trip-updates, arrival-alarm) before fetching the push
+      // token. This screen used to do its own permission request + token
+      // fetch inline and skip that channel setup entirely, which — since
+      // this is the main path most parents grant push permission through —
+      // meant Android pushes (including the "bus is at your stop" alarm)
+      // could arrive silently with no sound or heads-up banner.
+      const {
+        data: { session },
+      } = await supabase.auth.getSession();
 
-      if (status === 'granted') {
-        await registerPushToken();
+      if (session?.access_token) {
+        await registerForPushNotifications(session.access_token);
       }
     } catch {
       // Non-fatal — proceed to main app regardless

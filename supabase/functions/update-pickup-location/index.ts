@@ -8,6 +8,24 @@ const corsHeaders = {
     'authorization, content-type, x-client-info, apikey',
 };
 
+// updatePickupLocationSchema only checks that lat/lng are valid coordinates
+// anywhere on Earth (+/-90 / +/-180) — nothing stops a mis-drag or a bad GPS
+// fix from saving a pin on another continent. Sanity-check it against the
+// student's own school instead: generous enough for genuinely long Lagos
+// routes, tight enough to catch an obviously wrong drop.
+const EARTH_RADIUS_M = 6_371_000;
+const MAX_PICKUP_DISTANCE_FROM_SCHOOL_M = 50_000;
+
+function haversineMeters(lat1: number, lon1: number, lat2: number, lon2: number): number {
+  const toRad = (d: number) => (d * Math.PI) / 180;
+  const dLat = toRad(lat2 - lat1);
+  const dLon = toRad(lon2 - lon1);
+  const a =
+    Math.sin(dLat / 2) ** 2 +
+    Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLon / 2) ** 2;
+  return EARTH_RADIUS_M * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+}
+
 function jsonResponse(body: unknown, status: number) {
   return new Response(JSON.stringify(body), {
     status,
@@ -108,6 +126,29 @@ Deno.serve(async (req: Request) => {
     Deno.env.get('SUPABASE_URL')!,
     Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!,
   );
+
+  // Sanity-check the dropped pin against the student's school before saving.
+  const { data: studentRow } = await serviceSupabase
+    .from('students')
+    .select('school_id, schools(latitude, longitude)')
+    .eq('id', validated.studentId)
+    .maybeSingle();
+
+  const school = (studentRow as { schools: { latitude: number | null; longitude: number | null } | null } | null)
+    ?.schools;
+
+  if (school?.latitude != null && school?.longitude != null) {
+    const distanceM = haversineMeters(validated.lat, validated.lng, school.latitude, school.longitude);
+    if (distanceM > MAX_PICKUP_DISTANCE_FROM_SCHOOL_M) {
+      return jsonResponse(
+        {
+          error: `That pin is about ${Math.round(distanceM / 1000)}km from the school — check you dropped it in the right place.`,
+          statusCode: 400,
+        },
+        400,
+      );
+    }
+  }
 
   const { error: updateError } = await serviceSupabase
     .from('students')

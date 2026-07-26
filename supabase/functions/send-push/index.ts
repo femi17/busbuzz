@@ -16,8 +16,13 @@ const EXPO_PUSH_URL =
 // Expo accepts at most 100 messages per request.
 const EXPO_BATCH_SIZE = 100;
 
-type ProfileRow = { id: string; expo_push_token: string | null };
-type ExpoTicket = { status: 'ok' | 'error'; message?: string; details?: { error?: string } };
+type PushTokenRow = { id: string; profile_id: string; expo_push_token: string };
+type ExpoTicket = {
+  status: 'ok' | 'error';
+  id?: string;
+  message?: string;
+  details?: { error?: string };
+};
 
 type SendPushBody = {
   userIds: string[];
@@ -105,7 +110,9 @@ Deno.serve(async (req: Request) => {
     Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!,
   );
 
-  // Persist in-app notification history (best-effort).
+  // Persist in-app notification history (best-effort) — one row per
+  // recipient regardless of whether they have a working push token, so it's
+  // still visible next time they open the Notifications screen.
   try {
     const rows = validated.userIds.map((userId) => ({
       user_id: userId,
@@ -119,19 +126,22 @@ Deno.serve(async (req: Request) => {
     console.error('[send-push] Unexpected error persisting notifications:', err);
   }
 
-  const { data: profiles, error: profilesError } = await supabase
-    .from('profiles')
-    .select('id, expo_push_token')
-    .in('id', validated.userIds);
+  // push_tokens holds one row per device/install (a profile can have
+  // several), replacing the old single profiles.expo_push_token column that
+  // let a second device silently steal delivery from the first.
+  const { data: tokenRows, error: tokenRowsError } = await supabase
+    .from('push_tokens')
+    .select('id, profile_id, expo_push_token')
+    .in('profile_id', validated.userIds);
 
-  if (profilesError) {
-    console.error('[send-push] Failed to load profiles:', profilesError);
+  if (tokenRowsError) {
+    console.error('[send-push] Failed to load push tokens:', tokenRowsError);
     return jsonResponse({ data: { sent: 0, failed: 0 }, message: 'Notifications sent' }, 200);
   }
 
-  const validTokens: Array<{ id: string; token: string }> = ((profiles ?? []) as ProfileRow[])
-    .filter((p) => !!p.expo_push_token && p.expo_push_token.trim() !== '')
-    .map((p) => ({ id: p.id, token: p.expo_push_token as string }));
+  const validTokens: PushTokenRow[] = ((tokenRows ?? []) as PushTokenRow[]).filter(
+    (t) => !!t.expo_push_token && t.expo_push_token.trim() !== '',
+  );
 
   if (validTokens.length === 0) {
     return jsonResponse({ data: { sent: 0, failed: 0 }, message: 'Notifications sent' }, 200);
@@ -139,14 +149,19 @@ Deno.serve(async (req: Request) => {
 
   let sent = 0;
   let failed = 0;
-  const staleTokenUserIds: string[] = [];
+  const staleTokenRowIds: string[] = [];
+  // Tickets Expo accepted — their eventual delivery outcome is only knowable
+  // by polling Expo's separate receipts endpoint later (check-push-receipts,
+  // on a schedule). A ticket of 'ok' here just means Expo took the message,
+  // not that it reached the device.
+  const receiptRows: Array<{ ticket_id: string; push_token_id: string }> = [];
 
   const channelId = validated.channelId ?? 'trip-updates';
 
   // Send in batches of 100 (Expo's per-request limit).
   for (const batch of chunk(validTokens, EXPO_BATCH_SIZE)) {
     const messages = batch.map((entry) => ({
-      to: entry.token,
+      to: entry.expo_push_token,
       title: validated.title,
       body: validated.body,
       data: validated.data ?? {},
@@ -189,23 +204,32 @@ Deno.serve(async (req: Request) => {
     tickets.forEach((ticket, i) => {
       if (ticket.status === 'ok') {
         sent += 1;
+        if (ticket.id) {
+          receiptRows.push({ ticket_id: ticket.id, push_token_id: batch[i].id });
+        }
       } else if (ticket.status === 'error') {
         failed += 1;
         if (ticket.details?.error === 'DeviceNotRegistered') {
-          const userId = batch[i]?.id;
-          if (userId) staleTokenUserIds.push(userId);
+          staleTokenRowIds.push(batch[i].id);
         }
       }
     });
   }
 
-  if (staleTokenUserIds.length > 0) {
+  if (staleTokenRowIds.length > 0) {
     const { error: clearError } = await supabase
-      .from('profiles')
-      .update({ expo_push_token: null })
-      .in('id', staleTokenUserIds);
+      .from('push_tokens')
+      .delete()
+      .in('id', staleTokenRowIds);
     if (clearError) {
-      console.error('[send-push] Failed to clear stale tokens:', staleTokenUserIds, clearError);
+      console.error('[send-push] Failed to clear stale tokens:', staleTokenRowIds, clearError);
+    }
+  }
+
+  if (receiptRows.length > 0) {
+    const { error: receiptError } = await supabase.from('push_receipts').insert(receiptRows);
+    if (receiptError) {
+      console.error('[send-push] Failed to record receipt tickets:', receiptError);
     }
   }
 

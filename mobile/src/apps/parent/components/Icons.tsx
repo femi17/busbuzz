@@ -180,6 +180,37 @@ export function BellIcon({ size = 24, color = '#0E1B2E' }: IconProps) {
   );
 }
 
+// Two crossing bars, same construction as CheckIcon — kept blunt and
+// geometric to match, instead of falling back to a system-font "✕" glyph.
+export function CloseIcon({ size = 24, color = '#0E1B2E' }: IconProps) {
+  const stroke = Math.max(2, size * 0.12);
+  const barLength = size * 0.62;
+  return (
+    <View style={{ width: size, height: size, alignItems: 'center', justifyContent: 'center' }}>
+      <View
+        style={{
+          position: 'absolute',
+          width: barLength,
+          height: stroke,
+          borderRadius: stroke / 2,
+          backgroundColor: color,
+          transform: [{ rotate: '45deg' }],
+        }}
+      />
+      <View
+        style={{
+          position: 'absolute',
+          width: barLength,
+          height: stroke,
+          borderRadius: stroke / 2,
+          backgroundColor: color,
+          transform: [{ rotate: '-45deg' }],
+        }}
+      />
+    </View>
+  );
+}
+
 export function CheckIcon({ size = 24, color = '#0E1B2E' }: IconProps) {
   const stroke = Math.max(2, size * 0.12);
   return (

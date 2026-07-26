@@ -102,7 +102,7 @@ Deno.serve(async (req: Request) => {
   // Load the trip
   const { data: trip, error: tripError } = await serviceSupabase
     .from('trips')
-    .select('id, bus_id, driver_id, status')
+    .select('id, bus_id, route_id, driver_id, status')
     .eq('id', validated.tripId)
     .single();
 
@@ -159,6 +159,57 @@ Deno.serve(async (req: Request) => {
     });
   } catch (err) {
     console.error('[end-trip] Realtime broadcast failed:', err);
+  }
+
+  // Also push it — same reasoning as start-trip's push: Realtime only
+  // reaches an app that's already connected, so a parent with the app
+  // closed or backgrounded otherwise gets no confirmation the run finished.
+  try {
+    const { data: studentRows } = await serviceSupabase
+      .from('students')
+      .select('student_parents(parent_id)')
+      .eq('route_id', trip.route_id)
+      .eq('is_active', true);
+
+    const parentIds = new Set<string>();
+    for (const row of (studentRows ?? []) as Array<{
+      student_parents: Array<{ parent_id: string }> | { parent_id: string } | null;
+    }>) {
+      const sp = row.student_parents;
+      if (Array.isArray(sp)) {
+        for (const e of sp) if (e?.parent_id) parentIds.add(e.parent_id);
+      } else if (sp?.parent_id) {
+        parentIds.add(sp.parent_id);
+      }
+    }
+
+    if (parentIds.size > 0) {
+      const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
+      const serviceRoleKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
+      const internalSecret = Deno.env.get('INTERNAL_FUNCTION_SECRET')!;
+
+      const pushResp = await fetch(`${supabaseUrl}/functions/v1/send-push`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${serviceRoleKey}`,
+          'apikey': serviceRoleKey,
+          'X-Internal-Secret': internalSecret,
+        },
+        body: JSON.stringify({
+          userIds: Array.from(parentIds),
+          title: 'Run complete',
+          body: "Today's run has ended.",
+          data: { type: 'trip-ended', tripId: validated.tripId, busId: trip.bus_id },
+          channelId: 'trip-updates',
+        }),
+      });
+      if (!pushResp.ok) {
+        console.error(`[end-trip] trip-ended send-push returned ${pushResp.status}`);
+      }
+    }
+  } catch (err) {
+    console.error('[end-trip] trip-ended push failed:', err);
   }
 
   return jsonResponse(

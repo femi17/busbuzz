@@ -3,7 +3,7 @@ import { Alert, FlatList, Pressable, RefreshControl, StyleSheet, Text, View } fr
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { supabase } from '../../lib/supabase';
-import { BackpackIcon, BellIcon, PinIcon, SchoolIcon } from './components/Icons';
+import { BackpackIcon, BellIcon, BusIcon, CheckIcon, CloseIcon, PinIcon, SchoolIcon } from './components/Icons';
 import { color, radius, space, type } from './theme';
 
 type NotificationRow = {
@@ -32,14 +32,58 @@ function formatRelativeTime(dateStr: string): string {
   return date.toLocaleDateString('en-GB', { day: 'numeric', month: 'short' });
 }
 
+// Each of these matches a `data.type` the backend actually sends (see
+// gps-update, mark-attendance, report-absence, start-trip, end-trip,
+// sos-alert). 'geofence' is kept for compatibility but nothing sends it any
+// more — gps-update's own approach/arrival/next-stop logic replaced the
+// standalone geofence-check function it used to call. Before this, every
+// one of these types except 'attendance' fell through to the same generic
+// gray bell, so bus-approaching, bus-arrived, absence, and trip start/end
+// notifications — the ones a parent actually watches for — were visually
+// indistinguishable from each other and from an ordinary status update.
 function NotificationIcon({ notification }: { notification: NotificationRow }) {
   const notifType = notification.data?.type;
   const status = notification.data?.status;
 
-  if (notifType === 'geofence') {
+  if (notifType === 'geofence' || notifType === 'approach' || notifType === 'arrival' || notifType === 'next-stop') {
     return (
       <View style={[styles.iconWrap, { backgroundColor: 'rgba(255,201,0,0.16)' }]}>
         <PinIcon size={18} color={color.danfo600} />
+      </View>
+    );
+  }
+
+  if (notifType === 'trip-started') {
+    return (
+      <View style={[styles.iconWrap, { backgroundColor: 'rgba(255,201,0,0.16)' }]}>
+        <BusIcon size={18} color={color.danfo600} />
+      </View>
+    );
+  }
+
+  if (notifType === 'trip-ended') {
+    return (
+      <View style={[styles.iconWrap, { backgroundColor: color.routeGreenBg }]}>
+        <CheckIcon size={16} color={color.routeGreen} />
+      </View>
+    );
+  }
+
+  if (notifType === 'sos') {
+    return (
+      <View style={[styles.iconWrap, { backgroundColor: color.stopRedBg }]}>
+        <BellIcon size={18} color={color.stopRed} />
+      </View>
+    );
+  }
+
+  // 'absence' (parent-reported) and attendance's own ABSENT status both mean
+  // "this child isn't riding today" — same slashed-school glyph the "not
+  // going today" toggle on the Track screen already uses for that concept.
+  if (notifType === 'absence' || (notifType === 'attendance' && status === 'ABSENT')) {
+    return (
+      <View style={[styles.iconWrap, { backgroundColor: color.stopRedBg }]}>
+        <SchoolIcon size={18} color={color.stopRed} strikethrough />
       </View>
     );
   }
@@ -56,13 +100,6 @@ function NotificationIcon({ notification }: { notification: NotificationRow }) {
       return (
         <View style={[styles.iconWrap, { backgroundColor: color.routeGreenBg }]}>
           <SchoolIcon size={18} color={color.routeGreen} />
-        </View>
-      );
-    }
-    if (status === 'ABSENT') {
-      return (
-        <View style={[styles.iconWrap, { backgroundColor: color.stopRedBg }]}>
-          <BellIcon size={18} color={color.stopRed} />
         </View>
       );
     }
@@ -259,11 +296,11 @@ export default function NotificationsScreen() {
                 {!item.readAt ? <View style={styles.unreadDot} /> : null}
                 <Pressable
                   onPress={() => deleteOne(item)}
-                  hitSlop={10}
+                  hitSlop={8}
                   accessibilityLabel="Delete notification"
                   style={({ pressed }) => [styles.deleteBtn, pressed && styles.deleteBtnPressed]}
                 >
-                  <Text style={styles.deleteGlyph}>✕</Text>
+                  <CloseIcon size={13} color={color.ledger400} />
                 </Pressable>
               </Pressable>
             )}
@@ -322,11 +359,8 @@ const styles = StyleSheet.create({
     paddingBottom: space.sm,
   },
   actionsCount: {
-    ...type.data,
-    fontSize: 12,
+    ...type.eyebrowSm,
     color: color.ledger400,
-    textTransform: 'uppercase',
-    letterSpacing: 0.8,
   },
   actionsButtons: {
     flexDirection: 'row',
@@ -397,8 +431,7 @@ const styles = StyleSheet.create({
     fontWeight: '800',
   },
   time: {
-    ...type.data,
-    fontSize: 11,
+    ...type.dataSm,
     color: color.ledger400,
   },
   body: {
@@ -414,22 +447,18 @@ const styles = StyleSheet.create({
     marginLeft: space.sm,
     marginTop: 6,
   },
+  // 32px + 8px hitSlop on every edge = ~48px effective touch target
+  // (was 22px + 10px hitSlop, ~42px — under the 44px guideline).
   deleteBtn: {
     marginLeft: space.sm,
-    marginTop: 2,
-    width: 22,
-    height: 22,
-    borderRadius: 11,
+    marginTop: -3,
+    width: 32,
+    height: 32,
+    borderRadius: 16,
     alignItems: 'center',
     justifyContent: 'center',
   },
   deleteBtnPressed: {
     backgroundColor: color.paper100,
-  },
-  deleteGlyph: {
-    fontSize: 13,
-    lineHeight: 16,
-    color: color.ledger400,
-    fontWeight: '600',
   },
 });

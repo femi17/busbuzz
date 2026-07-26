@@ -101,10 +101,12 @@ Deno.serve(async (req: Request) => {
     Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!,
   );
 
-  // Load the trip
+  // Load the trip — direction (MORNING/AFTERNOON) is needed below so the
+  // DROPPED_OFF push says the right thing: "at school" in the morning,
+  // "at home" in the afternoon.
   const { data: trip, error: tripError } = await serviceSupabase
     .from('trips')
-    .select('id, bus_id, route_id, driver_id, status')
+    .select('id, bus_id, route_id, driver_id, status, direction')
     .eq('id', validated.tripId)
     .single();
 
@@ -233,7 +235,13 @@ Deno.serve(async (req: Request) => {
         if (validated.status === 'BOARDED') {
           pushBody = `${student.name} has boarded the bus \u{1F68C}`;
         } else if (validated.status === 'DROPPED_OFF') {
-          pushBody = `${student.name} has been dropped off at school \u{2705}`;
+          // trip.direction is null for pre-existing trips created before the
+          // direction column was added — default to "at school" (the more
+          // common case) rather than showing nothing.
+          const droppedAtHome = trip.direction === 'AFTERNOON';
+          pushBody = droppedAtHome
+            ? `${student.name} has been dropped off at home \u{2705}`
+            : `${student.name} has been dropped off at school \u{2705}`;
         } else {
           pushBody = `${student.name} was not at the stop \u{2014} please contact the school.`;
         }

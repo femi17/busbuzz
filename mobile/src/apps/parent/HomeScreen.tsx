@@ -24,6 +24,7 @@ import {
   ActivityIndicator,
   Alert,
   Animated,
+  AppState,
   Easing,
   Image,
   Linking,
@@ -113,6 +114,7 @@ function getStatusChip(
   attendance: AttendanceState,
   busSpeed: number | null,
   isApproaching: boolean,
+  isStopped: boolean,
   routeType: RouteType,
 ): StatusChip {
   if (trip?.hasSos) {
@@ -130,6 +132,9 @@ function getStatusChip(
   }
   if (isApproaching) {
     return { label: 'Picking up', bg: 'rgba(255,201,0,0.16)', dot: color.danfo500, text: color.ledger700 };
+  }
+  if (isStopped) {
+    return { label: 'Bus stopped', bg: color.paper100, dot: color.ledger400, text: color.ledger700 };
   }
   if (busSpeed !== null && busSpeed > 0) {
     return { label: 'On route', bg: 'rgba(255,201,0,0.16)', dot: color.danfo500, text: color.ledger700 };
@@ -161,6 +166,26 @@ function resolveChildPin(student: LinkedStudent): [number, number] | null {
     return [student.schoolLng, student.schoolLat];
   }
   return null;
+}
+
+// Recomputes which route stops the bus has already passed from a batch of
+// historical GPS points — same proximity rule as the live per-broadcast
+// check in the trip effect below, so replaying history and watching live
+// broadcasts agree on what counts as "reached."
+function computeReachedStops(
+  points: Array<{ lat: number; lng: number; recordedAt: string }>,
+  stops: StopInfo[],
+): Record<string, string> {
+  const reached: Record<string, string> = {};
+  for (const stop of stops) {
+    for (const point of points) {
+      if (haversineDistance(point.lat, point.lng, stop.latitude, stop.longitude) < APPROACH_RADIUS_M) {
+        reached[stop.id] = point.recordedAt;
+        break;
+      }
+    }
+  }
+  return reached;
 }
 
 export default function HomeScreen() {
@@ -269,15 +294,16 @@ export default function HomeScreen() {
     [selectedStudent?.id],
   );
 
-  const [showAbsenceConfirm, setShowAbsenceConfirm] = useState(false);
+  // Which confirm dialog to show for the "not going today" toggle — both
+  // directions get a confirmation now: reporting an absence tells the
+  // driver to skip a real pickup if tapped by mistake, and cancelling one
+  // right before the trip starts means the bus WILL stop for a child who
+  // may not be there, so a stray tap shouldn't silently flip either one.
+  const [absenceConfirmAction, setAbsenceConfirmAction] = useState<'report' | 'cancel' | null>(null);
 
   function handleAbsencePress() {
     if (!selectedStudent) return;
-    if (absentToday) {
-      submitAbsence('cancel');
-      return;
-    }
-    setShowAbsenceConfirm(true);
+    setAbsenceConfirmAction(absentToday ? 'cancel' : 'report');
   }
 
   // The map journey: the bus's actual traveled path this trip, which stops
@@ -540,10 +566,10 @@ export default function HomeScreen() {
       }
 
       const [lng, lat] = pickupPosition;
-      const ok = await savePickupLocation(session.access_token, selectedStudent.id, lat, lng);
+      const result = await savePickupLocation(session.access_token, selectedStudent.id, lat, lng);
 
-      if (!ok) {
-        setPickupSaveError("Couldn't save — check your connection and try again.");
+      if (!result.ok) {
+        setPickupSaveError(result.error);
         return;
       }
 
@@ -671,6 +697,51 @@ export default function HomeScreen() {
       }
     }
 
+    function clearTripState() {
+      if (channel) {
+        supabase.removeChannel(channel);
+        channel = null;
+      }
+      setTrip(null);
+      setAttendance(null);
+      setBusPosition(null);
+      setBusSpeed(null);
+      setBusUpdatedAt(null);
+      setIsApproaching(false);
+      setBreadcrumb([]);
+      setReachedStops({});
+      hasAnimatedToBusRef.current = false;
+      currentTripIdRef.current = null;
+    }
+
+    // Rebuilds the breadcrumb trail and "stops reached" log for a trip from
+    // trip_locations. Used to seed a freshly-opened trip and to catch up
+    // after the app returns from the background — Realtime broadcasts
+    // aren't queued while the socket is disconnected, so any GPS pings that
+    // landed while backgrounded would otherwise leave a permanent gap in
+    // the trail and stops the bus already passed stuck showing "upcoming."
+    async function resyncTripHistory(tripId: string) {
+      const { data: locationRows } = await supabase
+        .from('trip_locations')
+        .select('latitude, longitude, recorded_at')
+        .eq('trip_id', tripId)
+        .order('recorded_at');
+
+      if (!isMounted || !locationRows) return;
+
+      setBreadcrumb(
+        locationRows.slice(-MAX_BREADCRUMB_POINTS).map((p) => ({ lat: p.latitude, lng: p.longitude })),
+      );
+
+      const reachedFromHistory = computeReachedStops(
+        locationRows.map((p) => ({ lat: p.latitude, lng: p.longitude, recordedAt: p.recorded_at })),
+        routeStopsRef.current,
+      );
+      // History fills in gaps; a stop already marked from a live broadcast
+      // keeps its original (more precise) timestamp.
+      setReachedStops((prev) => ({ ...reachedFromHistory, ...prev }));
+    }
+
     async function checkForActiveTrip() {
       if (!selectedStudent!.routeId) return;
 
@@ -684,20 +755,7 @@ export default function HomeScreen() {
       if (!isMounted) return;
 
       if (!tripData) {
-        if (channel) {
-          supabase.removeChannel(channel);
-          channel = null;
-        }
-        setTrip(null);
-        setAttendance(null);
-        setBusPosition(null);
-        setBusSpeed(null);
-        setBusUpdatedAt(null);
-        setIsApproaching(false);
-        setBreadcrumb([]);
-        setReachedStops({});
-        hasAnimatedToBusRef.current = false;
-        currentTripIdRef.current = null;
+        clearTripState();
         return;
       }
 
@@ -709,27 +767,22 @@ export default function HomeScreen() {
       };
 
       setTrip(loadedTrip);
-      hasAnimatedToBusRef.current = false;
 
-      // A genuinely new trip (not just this same trip's 30s poll refresh) —
-      // seed the breadcrumb trail with whatever's already been recorded, and
-      // start this trip's stop-reached log fresh.
+      // A genuinely new trip (not just this same trip's poll/foreground
+      // refresh) — reset breadcrumb/stop state, seed history, and
+      // (re)subscribe to its bus channel. Resubscribing on every poll used
+      // to tear the live channel down and rebuild it every 30s even for the
+      // same trip, which both snapped the camera back to the bus (see
+      // hasAnimatedToBusRef in the location_update handler below) and could
+      // drop a GPS broadcast that landed mid-resubscribe.
       if (currentTripIdRef.current !== loadedTrip.id) {
         currentTripIdRef.current = loadedTrip.id;
+        hasAnimatedToBusRef.current = false;
         setBreadcrumb([]);
         setReachedStops({});
-
-        const { data: locationRows } = await supabase
-          .from('trip_locations')
-          .select('latitude, longitude, recorded_at')
-          .eq('trip_id', loadedTrip.id)
-          .order('recorded_at');
-
-        if (isMounted && locationRows) {
-          setBreadcrumb(
-            locationRows.slice(-MAX_BREADCRUMB_POINTS).map((p) => ({ lat: p.latitude, lng: p.longitude })),
-          );
-        }
+        await resyncTripHistory(loadedTrip.id);
+        if (!isMounted) return;
+        subscribeToTrip(loadedTrip);
       }
 
       const { data: attendanceData } = await supabase
@@ -742,8 +795,6 @@ export default function HomeScreen() {
       if (isMounted && attendanceData) {
         setAttendance({ status: attendanceData.status });
       }
-
-      subscribeToTrip(loadedTrip);
     }
 
     function subscribeToTrip(loadedTrip: TripInfo) {
@@ -839,6 +890,14 @@ export default function HomeScreen() {
             setAttendance({ status: 'DROPPED_OFF' });
           }
         })
+        .on('broadcast', { event: 'trip_ended' }, (msg) => {
+          const payload = msg.payload as { tripId: string };
+          // Clear immediately instead of waiting up to 30s for the next
+          // poll to notice the trip is gone.
+          if (isMounted && payload.tripId === currentTripIdRef.current) {
+            clearTripState();
+          }
+        })
         .subscribe();
     }
 
@@ -862,8 +921,22 @@ export default function HomeScreen() {
 
     init();
 
+    // The socket disconnects while the app is backgrounded, so anything the
+    // driver's phone sent during that window (GPS pings, boarding/drop-off,
+    // trip end) is otherwise lost to this screen until the next 30s poll
+    // happens to line up. Resync as soon as the app comes back to the
+    // foreground instead of waiting on that.
+    const appStateSub = AppState.addEventListener('change', (nextState) => {
+      if (nextState !== 'active' || !isMounted) return;
+      checkForActiveTrip();
+      if (currentTripIdRef.current) {
+        resyncTripHistory(currentTripIdRef.current);
+      }
+    });
+
     return () => {
       isMounted = false;
+      appStateSub.remove();
       if (pollIntervalId) clearInterval(pollIntervalId);
       if (channel) supabase.removeChannel(channel);
     };
@@ -948,7 +1021,7 @@ export default function HomeScreen() {
     return best.i;
   }, [routeStops, reachedStops, busPosition]);
 
-  const chip = getStatusChip(trip, attendance, busSpeed, isApproaching, routeType);
+  const chip = getStatusChip(trip, attendance, busSpeed, isApproaching, isStopped, routeType);
   const selectedChildColor = selectedStudent
     ? childColors[selectedStudent.id] ?? color.danfo500
     : color.danfo500;
@@ -1010,16 +1083,25 @@ export default function HomeScreen() {
       <StatusBar style="dark" />
 
       <ConfirmDialog
-        visible={showAbsenceConfirm}
-        title={`${selectedStudent ? getFirstName(selectedStudent.name) || selectedStudent.name : 'Your child'} isn't going today?`}
-        message="The school and the driver will be told not to stop for them today. You can undo this any time before the trip."
-        confirmLabel="Yes, not going"
+        visible={absenceConfirmAction !== null}
+        title={
+          absenceConfirmAction === 'cancel'
+            ? `${selectedStudent ? getFirstName(selectedStudent.name) || selectedStudent.name : 'Your child'} is going after all?`
+            : `${selectedStudent ? getFirstName(selectedStudent.name) || selectedStudent.name : 'Your child'} isn't going today?`
+        }
+        message={
+          absenceConfirmAction === 'cancel'
+            ? "The school and the driver will be told to stop for them again today."
+            : "The school and the driver will be told not to stop for them today. You can undo this any time before the trip."
+        }
+        confirmLabel={absenceConfirmAction === 'cancel' ? 'Yes, going today' : 'Yes, not going'}
         cancelLabel="Cancel"
-        destructive
-        onCancel={() => setShowAbsenceConfirm(false)}
+        destructive={absenceConfirmAction === 'report'}
+        onCancel={() => setAbsenceConfirmAction(null)}
         onConfirm={() => {
-          setShowAbsenceConfirm(false);
-          submitAbsence('report');
+          const action = absenceConfirmAction;
+          setAbsenceConfirmAction(null);
+          if (action) submitAbsence(action);
         }}
       />
 
@@ -1517,8 +1599,11 @@ const styles = StyleSheet.create({
   // child-switcher avatars it sits beside. White/neutral when the child is
   // attending; flips to red with a struck-through school glyph once marked.
   topIconButton: {
-    height: 36,
-    borderRadius: 18,
+    // 44px meets the standard minimum touch-target guideline — was 36px,
+    // floating directly over an interactive map where a near-miss tap pans
+    // the map instead of hitting the button.
+    height: 44,
+    borderRadius: 22,
     paddingHorizontal: space.sm + 2,
     flexDirection: 'row',
     alignItems: 'center',
@@ -1548,10 +1633,11 @@ const styles = StyleSheet.create({
   topIconButtonLabelActive: {
     color: color.white,
   },
+  // Same 44px touch-target reasoning as topIconButton above.
   childSwitcherIcon: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
+    width: 44,
+    height: 44,
+    borderRadius: 22,
     alignItems: 'center',
     justifyContent: 'center',
     borderWidth: 2,
@@ -1739,8 +1825,7 @@ const styles = StyleSheet.create({
     flexShrink: 1,
   },
   headerLabel: {
-    ...type.eyebrow,
-    fontSize: 10,
+    ...type.eyebrowSm,
     color: color.ledger400,
     marginBottom: 3,
   },
@@ -1818,8 +1903,7 @@ const styles = StyleSheet.create({
     alignItems: 'flex-end',
   },
   statLabel: {
-    ...type.eyebrow,
-    fontSize: 10,
+    ...type.eyebrowSm,
     color: color.ledger400,
     marginBottom: 4,
   },
@@ -1842,13 +1926,11 @@ const styles = StyleSheet.create({
     marginBottom: space.sm,
   },
   journeyHeading: {
-    ...type.eyebrow,
-    fontSize: 11,
+    ...type.eyebrowSm,
     color: color.ledger400,
   },
   journeyCount: {
-    ...type.data,
-    fontSize: 11,
+    ...type.dataSm,
     color: color.ledger400,
   },
   timelineScroll: {
@@ -1922,8 +2004,7 @@ const styles = StyleSheet.create({
     color: color.ink900,
   },
   tlTime: {
-    ...type.data,
-    fontSize: 12,
+    ...type.dataSm,
     color: color.ledger400,
     marginTop: 2,
   },
@@ -1990,8 +2071,7 @@ const styles = StyleSheet.create({
     backgroundColor: color.paper100,
   },
   metaLabel: {
-    ...type.eyebrow,
-    fontSize: 10,
+    ...type.eyebrowSm,
     color: color.ledger400,
     marginBottom: 4,
   },
@@ -2001,8 +2081,7 @@ const styles = StyleSheet.create({
     color: color.ledger700,
   },
   metaValueMono: {
-    ...type.data,
-    fontSize: 13,
+    ...type.dataSm,
     color: color.ledger700,
   },
   metaValueGreen: {
