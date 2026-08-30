@@ -2,12 +2,34 @@
    Handles Web Push delivery + notification taps. Offline caching can be
    layered on later (e.g. Serwist); kept push-focused for now. */
 
-self.addEventListener("install", () => {
+const OFFLINE_CACHE = "busbuzz-offline-v1";
+const OFFLINE_URL = "/offline";
+
+self.addEventListener("install", (event) => {
   self.skipWaiting();
+  event.waitUntil(
+    caches
+      .open(OFFLINE_CACHE)
+      .then((cache) => cache.addAll([OFFLINE_URL, "/icon-192.png"]))
+      .catch(() => {
+        // Offline fallback is additive — never block install on it.
+      }),
+  );
 });
 
 self.addEventListener("activate", (event) => {
   event.waitUntil(self.clients.claim());
+});
+
+// Network-first for page navigations; when the network is gone entirely,
+// serve the cached offline screen instead of the browser error page.
+self.addEventListener("fetch", (event) => {
+  if (event.request.mode !== "navigate") return;
+  event.respondWith(
+    fetch(event.request).catch(() =>
+      caches.match(OFFLINE_URL).then((cached) => cached || Response.error()),
+    ),
+  );
 });
 
 self.addEventListener("push", function (event) {

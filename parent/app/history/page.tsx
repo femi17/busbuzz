@@ -143,7 +143,7 @@ export default async function HistoryPage({
           <div className={screen.sectionLabel}>{g.day}</div>
           {g.trips.map((t, i) => (
             // Each run links to its journey replay (map + scrubbable timeline).
-            <a key={i} href={`/history/${t.id}`} className={`${styles.trip} ${styles.tripLink}`}>
+            <a key={i} href={`/history/${t.id}?child=${student!.id}`} className={`${styles.trip} ${styles.tripLink}`}>
               <div className={`${styles.icon} ${styles[t.run]}`}>
                 {t.run === "morning" ? (
                   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -170,7 +170,7 @@ export default async function HistoryPage({
         </section>
       ))}
 
-      <BottomNav active="history" childName={firstName} />
+      <BottomNav active="history" childName={firstName} childId={student?.id} />
     </main>
   );
 }

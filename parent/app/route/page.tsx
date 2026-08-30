@@ -43,7 +43,7 @@ export default async function RoutePage({
             </svg>
           }
         />
-        <BottomNav active="track" childName={firstName} />
+        <BottomNav active="track" childName={firstName} childId={student?.id} />
       </main>
     );
   }
@@ -172,7 +172,7 @@ export default async function RoutePage({
         ))}
       </div>
 
-      <BottomNav active="track" childName={firstName} />
+      <BottomNav active="track" childName={firstName} childId={student?.id} />
     </main>
   );
 }

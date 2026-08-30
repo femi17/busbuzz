@@ -104,3 +104,104 @@
   cursor: pointer;
 }
 .signOut:disabled { opacity: 0.6; }
+
+/* Account settings (child profile screen) */
+.settingRow {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.settingBody { flex: 1; min-width: 0; }
+.settingLabel {
+  font-family: var(--mono);
+  font-size: 11px;
+  letter-spacing: 0.1em;
+  color: var(--muted);
+  font-weight: 600;
+  text-transform: uppercase;
+}
+.settingValue {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--asphalt);
+  margin-top: 3px;
+}
+.settingMsg { font-size: 12px; color: #1fa971; font-weight: 700; }
+.settingInput {
+  width: 100%;
+  height: 42px;
+  margin-top: 5px;
+  border-radius: 12px;
+  border: 1.5px solid var(--line);
+  padding: 0 12px;
+  font-family: var(--body);
+  font-size: 15px;
+  font-weight: 500;
+  color: var(--asphalt);
+  background: #fff;
+}
+.settingInput:focus {
+  outline: none;
+  border-color: var(--danfo);
+  box-shadow: 0 0 0 4px rgba(244, 176, 26, 0.16);
+}
+.settingBtn,
+.settingBtnGhost {
+  height: 38px;
+  padding: 0 15px;
+  border-radius: 12px;
+  font-family: var(--display);
+  font-weight: 700;
+  font-size: 13px;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+.settingBtn { background: var(--danfo); border: none; color: var(--asphalt); }
+.settingBtnGhost { background: none; border: 1.5px solid var(--line); color: var(--asphalt); }
+.settingBtn:disabled, .settingBtnGhost:disabled { opacity: 0.6; }
+
+.deleteLink {
+  display: block;
+  width: 100%;
+  margin-top: 18px;
+  background: none;
+  border: none;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--muted);
+  text-decoration: underline;
+  cursor: pointer;
+  text-align: center;
+}
+.dangerCard {
+  margin-top: 18px;
+  background: rgba(232, 65, 42, 0.06);
+  border: 1px solid rgba(232, 65, 42, 0.3);
+  border-radius: 16px;
+  padding: 14px;
+}
+.dangerText {
+  font-size: 13px;
+  color: var(--muted);
+  line-height: 1.5;
+}
+.dangerText b { color: #c0392b; }
+.dangerActions {
+  display: flex;
+  gap: 10px;
+  justify-content: flex-end;
+  margin-top: 12px;
+}
+.dangerBtn {
+  height: 38px;
+  padding: 0 15px;
+  border-radius: 12px;
+  border: none;
+  background: #e8412a;
+  color: #fff;
+  font-family: var(--display);
+  font-weight: 700;
+  font-size: 13px;
+  cursor: pointer;
+}
+.dangerBtn:disabled { opacity: 0.6; }

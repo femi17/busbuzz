@@ -48,9 +48,9 @@ const icon: Record<Kind, React.ReactNode> = {
 export default async function AlertsPage({
   searchParams,
 }: {
-  searchParams: Promise<{ demo?: string }>;
+  searchParams: Promise<{ demo?: string; child?: string }>;
 }) {
-  const { demo } = await searchParams;
+  const { demo, child } = await searchParams;
   const supabase = await createClient();
   const {
     data: { user },
@@ -58,7 +58,10 @@ export default async function AlertsPage({
   if (!user) return null;
 
   const students = await getLinkedStudents(supabase, user.id);
-  const firstName = students[0] ? getFirstName(students[0].name) : "Child";
+  // Alerts are per-parent, not per-child — the param only keeps the
+  // selected child stable when hopping to the other tabs.
+  const selected = students.find((s) => s.id === child) ?? students[0];
+  const firstName = selected ? getFirstName(selected.name) : "Child";
 
   let groups: Array<{ day: string; items: Alert[] }> = [];
 
@@ -132,7 +135,7 @@ export default async function AlertsPage({
         </section>
       ))}
 
-      <BottomNav active="alerts" childName={firstName} />
+      <BottomNav active="alerts" childName={firstName} childId={selected?.id} />
     </main>
   );
 }

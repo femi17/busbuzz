@@ -35,10 +35,13 @@ export type ReplayData = {
 
 export default async function ReplayPage({
   params,
+  searchParams,
 }: {
   params: Promise<{ tripId: string }>;
+  searchParams: Promise<{ child?: string }>;
 }) {
   const { tripId } = await params;
+  const { child } = await searchParams;
   const supabase = await createClient();
   const {
     data: { session },
@@ -46,7 +49,9 @@ export default async function ReplayPage({
   if (!session) return null;
 
   const students = await getLinkedStudents(supabase, session.user.id);
-  const firstName = students[0] ? getFirstName(students[0].name) : "Child";
+  const selected = students.find((s) => s.id === child) ?? students[0];
+  const firstName = selected ? getFirstName(selected.name) : "Child";
+  const backHref = selected ? `/history?child=${selected.id}` : "/history";
 
   // get-trip-replay authorises the caller itself (parents get trips on
   // their own child's route, events filtered to their children).
@@ -64,7 +69,7 @@ export default async function ReplayPage({
   if (!resp.ok) {
     return (
       <main className="app">
-        <ScreenHeader title="Trip replay" href="/history" />
+        <ScreenHeader title="Trip replay" href={backHref} />
         <EmptyState
           title="Replay unavailable"
           text="This trip couldn't be loaded — it may be too old or not on your child's route."
@@ -75,7 +80,7 @@ export default async function ReplayPage({
             </svg>
           }
         />
-        <BottomNav active="history" childName={firstName} />
+        <BottomNav active="history" childName={firstName} childId={selected?.id} />
       </main>
     );
   }
@@ -97,10 +102,10 @@ export default async function ReplayPage({
       <ScreenHeader
         title="Trip replay"
         kicker={`${data.routeName} · ${runLabel} · ${day}`}
-        href="/history"
+        href={backHref}
       />
       <ReplayPlayer data={data} myStopIds={[...myStopIds]} />
-      <BottomNav active="history" childName={firstName} />
+      <BottomNav active="history" childName={firstName} childId={selected?.id} />
     </main>
   );
 }

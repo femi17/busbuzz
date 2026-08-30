@@ -60,7 +60,7 @@ export default function TrackLive({
 }: {
   parentName: string;
   student: LinkedStudent;
-  students: Array<{ id: string; name: string }>;
+  students: Array<{ id: string; name: string; photoUrl: string | null }>;
   initialBundle: TrackBundle | null;
 }) {
   const supabase = useMemo(() => createClient(), []);
@@ -76,6 +76,10 @@ export default function TrackLive({
   const [breadcrumb, setBreadcrumb] = useState<Array<[number, number]>>([]);
   const [reachedStops, setReachedStops] = useState<Record<string, string>>({});
   const [idleInfo, setIdleInfo] = useState<IdleInfo | null>(null);
+  // "Your bus has arrived" — fires once per trip, from live broadcasts only
+  // (never from the history resync, so reopening mid-trip doesn't re-pop it).
+  const [showArrival, setShowArrival] = useState(false);
+  const arrivalTripRef = useRef<string | null>(null);
 
   const currentTripIdRef = useRef<string | null>(bundle?.activeTrip?.id ?? null);
   const channelRef = useRef<RealtimeChannel | null>(null);
@@ -162,6 +166,7 @@ export default function TrackLive({
       setBusUpdatedAt(null);
       setBreadcrumb([]);
       setReachedStops({});
+      setShowArrival(false);
     }
 
     // Rebuild the trail + reached-stop log from trip_locations. Seeds a
@@ -236,6 +241,13 @@ export default function TrackLive({
               setReachedStops((prev) =>
                 prev[stop.id] ? prev : { ...prev, [stop.id]: new Date().toISOString() },
               );
+              if (
+                stop.id === student.stopId &&
+                arrivalTripRef.current !== currentTripIdRef.current
+              ) {
+                arrivalTripRef.current = currentTripIdRef.current;
+                setShowArrival(true);
+              }
             }
           }
         })
@@ -405,10 +417,40 @@ export default function TrackLive({
           </h1>
           <div className={styles.sub}>{subLine}</div>
         </div>
-        <ChildAvatar student={student} students={students} />
+        <ChildSwitcher student={student} students={students} />
       </header>
 
       <PushToggle />
+
+      {showArrival && trip && (
+        <div className={styles.arrivalOverlay} role="dialog" aria-modal="true">
+          <div className={styles.arrivalCard}>
+            <div className={styles.arrivalBadge}>
+              <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                <rect x="3" y="6" width="18" height="11" rx="2" fill="#1A1712" />
+                <rect x="5" y="8" width="5" height="4" fill="#F4B01A" />
+                <rect x="14" y="8" width="5" height="4" fill="#F4B01A" />
+                <circle cx="8" cy="18" r="2" fill="#1A1712" />
+                <circle cx="16" cy="18" r="2" fill="#1A1712" />
+              </svg>
+            </div>
+            <div className={styles.arrivalTitle}>Your bus has arrived</div>
+            <div className={styles.arrivalText}>
+              {bundle?.driver?.name ?? "The driver"} is at{" "}
+              <b>{bundle?.assignedStop?.name ?? "your stop"}</b>
+              {" · "}
+              {new Date().toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}
+            </div>
+            <button
+              type="button"
+              className={styles.arrivalBtn}
+              onClick={() => setShowArrival(false)}
+            >
+              Got it
+            </button>
+          </div>
+        </div>
+      )}
 
       {trip?.hasSos && (
         <div className={styles.recap}>
@@ -443,44 +485,58 @@ export default function TrackLive({
         <IdleView firstName={firstName} student={student} bundle={bundle} idle={idleInfo} />
       )}
 
-      <BottomNav active="track" childName={firstName} />
+      <BottomNav active="track" childName={firstName} childId={student.id} />
     </main>
   );
 }
 
-function ChildAvatar({
+function ChildSwitcher({
   student,
   students,
 }: {
   student: LinkedStudent;
-  students: Array<{ id: string; name: string }>;
+  students: Array<{ id: string; name: string; photoUrl: string | null }>;
 }) {
-  // The child's actual photo when the school uploaded one (photo_url is a
-  // long-lived signed URL — the photos bucket is private), else initials.
-  const face = student.photoUrl ? (
-    // eslint-disable-next-line @next/next/no-img-element
-    <img src={student.photoUrl} alt={student.name} />
-  ) : (
-    getInitials(student.name)[0]
-  );
-
-  // With several children the avatar cycles to the next one; the server
-  // page reads ?child= and re-renders the whole tracker for that child.
-  if (students.length > 1) {
-    const idx = students.findIndex((s) => s.id === student.id);
-    const next = students[(idx + 1) % students.length];
+  // One avatar per child; tapping re-renders the whole tracker for that
+  // child (?child= is read by the server page, and BottomNav carries it
+  // across the other tabs). Photos are long-lived signed URLs — the
+  // photos bucket is private — with initials as the fallback.
+  if (students.length <= 1) {
     return (
-      <a
-        className={styles.avatar}
-        href={`/?child=${next.id}`}
-        aria-label={`Switch to ${next.name}`}
-        title={`Switch to ${next.name}`}
-      >
-        {face}
-      </a>
+      <div className={styles.avatar}>
+        {student.photoUrl ? (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img src={student.photoUrl} alt={student.name} />
+        ) : (
+          getInitials(student.name)[0]
+        )}
+      </div>
     );
   }
-  return <div className={styles.avatar}>{face}</div>;
+
+  return (
+    <div className={styles.switcher}>
+      {students.map((s) => (
+        <a
+          key={s.id}
+          href={`/?child=${s.id}`}
+          className={
+            s.id === student.id ? `${styles.avatar} ${styles.avatarActive}` : styles.avatar
+          }
+          aria-label={`Track ${s.name}`}
+          aria-current={s.id === student.id ? "true" : undefined}
+          title={s.name}
+        >
+          {s.photoUrl ? (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img src={s.photoUrl} alt={s.name} />
+          ) : (
+            getInitials(s.name)[0]
+          )}
+        </a>
+      ))}
+    </div>
+  );
 }
 
 function ActiveView({
@@ -546,9 +602,38 @@ function ActiveView({
         updatedAt={busUpdatedAt}
       />
 
+      {/* Driver strip — during a live run, calling the driver is one tap,
+          not a detour to the child profile. */}
+      {bundle?.driver?.name && (
+        <div className={styles.driverRow}>
+          <div className={styles.driverAvatar}>
+            {bundle.driver.photoUrl ? (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img src={bundle.driver.photoUrl} alt={bundle.driver.name} />
+            ) : (
+              getInitials(bundle.driver.name)[0]
+            )}
+          </div>
+          <div className={styles.driverMeta}>
+            <div className={styles.driverName}>{bundle.driver.name}</div>
+            <div className={styles.driverPlate}>{bundle.plateNumber ?? "—"}</div>
+          </div>
+          {bundle.driver.phone && (
+            <a
+              className={styles.driverCall}
+              href={`tel:${bundle.driver.phone.replace(/\s/g, "")}`}
+              aria-label={`Call ${bundle.driver.name}`}
+            >
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M22 16.9v3a2 2 0 01-2.2 2 19.8 19.8 0 01-8.6-3.1 19.5 19.5 0 01-6-6 19.8 19.8 0 01-3.1-8.7A2 2 0 014.1 2h3a2 2 0 012 1.7c.1.9.4 1.8.7 2.7a2 2 0 01-.5 2.1L8.1 9.9a16 16 0 006 6l1.4-1.2a2 2 0 012.1-.5c.9.3 1.8.6 2.7.7a2 2 0 011.7 2z" /></svg>
+              Call
+            </a>
+          )}
+        </div>
+      )}
+
       <div className={styles.linehead}>
         <h2>THE LINE{routeLabel ? ` · ${routeLabel}` : ""}</h2>
-        <a href="/route">All stops</a>
+        <a href={`/route?child=${student.id}`}>All stops</a>
       </div>
 
       <div className={styles.spine}>
@@ -693,7 +778,7 @@ function IdleView({
         <>
           <div className={styles.linehead}>
             <h2>TODAY&apos;S SCHEDULE</h2>
-            <a href="/history">History</a>
+            <a href={`/history?child=${student.id}`}>History</a>
           </div>
 
           <div className={styles.sched}>

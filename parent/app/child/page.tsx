@@ -4,6 +4,7 @@ import ScreenHeader from "../components/ScreenHeader";
 import BottomNav from "../components/BottomNav";
 import EmptyState from "../components/EmptyState";
 import SignOutButton from "../components/SignOutButton";
+import AccountSettings from "../components/AccountSettings";
 import { createClient } from "@/lib/supabase/server";
 import {
   getFirstName,
@@ -169,9 +170,11 @@ export default async function ChildPage({
         ))}
       </div>
 
+      <AccountSettings initialPhone={profile?.phone ?? null} />
+
       <SignOutButton />
 
-      <BottomNav active="child" childName={getFirstName(student.name)} />
+      <BottomNav active="child" childName={getFirstName(student.name)} childId={student.id} />
     </main>
   );
 }

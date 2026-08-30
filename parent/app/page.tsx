@@ -4,6 +4,7 @@ import LiveMap from "./components/LiveMap";
 import BottomNav from "./components/BottomNav";
 import TrackLive from "./components/TrackLive";
 import EmptyState from "./components/EmptyState";
+import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { getLinkedStudents, getTrackBundle } from "@/lib/data";
 
@@ -26,9 +27,18 @@ export default async function TrackPage({
   if (!user) return null; // proxy.ts redirects before this can render
 
   const [{ data: profile }, students] = await Promise.all([
-    supabase.from("profiles").select("name").eq("id", user.id).single(),
+    supabase
+      .from("profiles")
+      .select("name, onboarding_completed")
+      .eq("id", user.id)
+      .single(),
     getLinkedStudents(supabase, user.id),
   ]);
+
+  // First sign-in: confirm the linked children before anything else.
+  if (profile && profile.onboarding_completed === false) {
+    redirect("/onboarding");
+  }
 
   if (students.length === 0) {
     return (
@@ -62,7 +72,7 @@ export default async function TrackPage({
       key={selected.id}
       parentName={profile?.name ?? "there"}
       student={selected}
-      students={students.map((s) => ({ id: s.id, name: s.name }))}
+      students={students.map((s) => ({ id: s.id, name: s.name, photoUrl: s.photoUrl }))}
       initialBundle={bundle}
     />
   );

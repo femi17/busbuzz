@@ -466,3 +466,122 @@
   font-weight: 700;
   color: #1fa971;
 }
+
+/* Multi-child switcher — one avatar per child in the header */
+.switcher { display: flex; gap: 8px; }
+.avatarActive {
+  outline: 3px solid var(--danfo);
+  outline-offset: 2px;
+}
+a.avatar { text-decoration: none; }
+
+/* Driver strip under the live map */
+.driverRow {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  padding: 11px 14px;
+  margin-top: 12px;
+}
+.driverAvatar {
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  background: rgba(26, 23, 18, 0.06);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-family: var(--display);
+  font-weight: 700;
+  color: var(--asphalt);
+  overflow: hidden;
+  flex-shrink: 0;
+}
+.driverAvatar img { width: 100%; height: 100%; object-fit: cover; }
+.driverMeta { flex: 1; min-width: 0; }
+.driverName { font-size: 14px; font-weight: 700; color: var(--asphalt); }
+.driverPlate {
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--muted);
+  letter-spacing: 0.06em;
+}
+.driverCall {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  height: 38px;
+  padding: 0 15px;
+  border-radius: 12px;
+  background: var(--danfo);
+  color: var(--asphalt);
+  font-family: var(--display);
+  font-weight: 700;
+  font-size: 13px;
+  text-decoration: none;
+  flex-shrink: 0;
+}
+.driverCall svg { width: 16px; height: 16px; }
+
+/* "Your bus has arrived" moment — once per trip */
+.arrivalOverlay {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  background: rgba(26, 23, 18, 0.45);
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  padding: 20px;
+  padding-bottom: calc(30px + env(safe-area-inset-bottom));
+}
+.arrivalCard {
+  width: 100%;
+  max-width: 420px;
+  background: #fff;
+  border-radius: 24px;
+  padding: 26px 22px 20px;
+  text-align: center;
+  box-shadow: 0 18px 50px rgba(26, 23, 18, 0.35);
+}
+.arrivalBadge {
+  width: 64px;
+  height: 64px;
+  margin: 0 auto 12px;
+  border-radius: 20px;
+  background: var(--danfo);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.arrivalBadge svg { width: 36px; height: 36px; }
+.arrivalTitle {
+  font-family: var(--display);
+  font-size: 21px;
+  font-weight: 800;
+  letter-spacing: -0.01em;
+  color: var(--asphalt);
+}
+.arrivalText {
+  font-size: 14px;
+  color: var(--muted);
+  margin-top: 6px;
+  line-height: 1.45;
+}
+.arrivalText b { color: var(--asphalt); }
+.arrivalBtn {
+  width: 100%;
+  height: 52px;
+  margin-top: 18px;
+  border: none;
+  border-radius: 16px;
+  background: var(--asphalt);
+  color: #fff;
+  font-family: var(--display);
+  font-size: 16px;
+  font-weight: 700;
+  cursor: pointer;
+}

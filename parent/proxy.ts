@@ -32,6 +32,10 @@ export async function proxy(request: NextRequest) {
   const { data } = await supabase.auth.getUser();
   const isLogin = request.nextUrl.pathname === "/login";
 
+  // /offline is the service worker's cached fallback — it must return a
+  // real 200 pre-login or the cache would hold a redirect instead.
+  if (request.nextUrl.pathname === "/offline") return response;
+
   if (!data.user && !isLogin) {
     const loginUrl = request.nextUrl.clone();
     loginUrl.pathname = "/login";
