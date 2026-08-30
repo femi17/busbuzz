@@ -1,32 +1,37 @@
 # BusBuzz Deployment Guide
 
+## Environments
+
+| | busbuzz-dev | busbuzz-prod |
+|---|---|---|
+| Supabase ref | `nmgvnoudmxrzqthnfxkk` | `cjjsjmelyfbpcnqfkgbc` |
+| Serves | local dev, Vercel previews, EAS `preview`/`driver` profiles | busbuzz.com.ng, app.busbuzz.com.ng, EAS `production*`/`driver-prod` profiles |
+
+busbuzz-prod was bootstrapped 2026-08-30 from the migration files (applied
+as batches `b01`–`b08` via the Supabase MCP; `b08` is
+`20260830140000_capture_dev_drift.sql`, which records everything that had
+been created directly on dev). The `check-push-receipts` pg_cron job on
+each project calls that project's own functions URL.
+
 ## 1. Database Migrations
 
-Migrations are applied manually via the Supabase SQL Editor (no local Supabase instance).
-
-**For dev:**
-1. Open Supabase dashboard for `busbuzz-dev`
-2. Go to SQL Editor
-3. Copy SQL from `.pipeline/sql-to-run.md` and execute each block in order
-
-**For production:**
-```bash
-supabase link --project-ref <busbuzz-prod-project-ref>
-supabase db push
-supabase link --project-ref <busbuzz-dev-project-ref>   # switch back to dev
-```
+Migrations are applied via the Supabase MCP (`apply_migration`) or the
+dashboard SQL Editor (no local Supabase instance). Apply to dev first;
+apply to prod (`cjjsjmelyfbpcnqfkgbc`) when releasing. If a migration
+hardcodes a project URL (cron jobs), substitute the target project's.
 
 ## 2. Edge Functions
 
-```bash
-# Deploy a single function
-supabase functions deploy <function-name> --project-ref <project-ref>
+Deploy via the Supabase MCP (`deploy_edge_function`). Functions that
+import `../../../shared/schemas.ts` must be uploaded with repo-relative
+paths (`supabase/functions/<name>/index.ts` + `shared/schemas.ts`) so the
+import resolves. verify_jwt is `false` only for: driver-login, send-push,
+check-push-receipts.
 
-# Deploy all functions
-supabase functions deploy --project-ref <project-ref>
-```
-
-Set secrets in Supabase dashboard under Edge Functions > Secrets.
+Secrets: `VAPID_KEYS` + `WEB_PUSH_CONTACT` live in the service-role-only
+`app_secrets` table (per project — dev and prod have different VAPID
+pairs). `INTERNAL_FUNCTION_SECRET`, `GOOGLE_MAPS_API_KEY`,
+`RESEND_API_KEY` are dashboard Edge Function secrets, set per project.
 
 ## 3. Web Admin (Next.js)
 
