@@ -26,13 +26,20 @@ npm run dev                  # http://localhost:3000
 Without a `NEXT_PUBLIC_MAPBOX_TOKEN` the Track screen shows a stylised
 fallback map, so the app runs before any keys are set.
 
-### Push notifications (test locally)
+### Push notifications
 
-iOS only delivers push to **home-screen-installed** PWAs. To test:
+Web Push is wired end-to-end: the "Get bus alerts on this device" card on
+Track subscribes the browser (subscription stored in
+`web_push_subscriptions`), and the `send-push` Edge Function delivers over
+the Web Push protocol alongside Expo — it needs the `VAPID_KEYS` edge
+secret (a `{publicKey, privateKey}` JWK-pair JSON; its public half is
+`NEXT_PUBLIC_VAPID_PUBLIC_KEY` here) and prunes dead subscriptions on
+404/410. Sign-out unsubscribes the browser so a shared device can't keep
+the previous parent's alerts.
 
-1. `npx web-push generate-vapid-keys` → put the pair in `.env.local`
-2. Run over HTTPS: `npm run dev -- --experimental-https`
-3. On iPhone: open the site → Share → **Add to Home Screen** → open from the icon → allow notifications
+iOS only delivers push to **home-screen-installed** PWAs: open the site →
+Share → **Add to Home Screen** → open from the icon → allow notifications.
+Local HTTPS testing: `npm run dev -- --experimental-https`.
 
 ## Structure
 
@@ -105,7 +112,4 @@ Empty states share `app/components/EmptyState.tsx`.
 
 ## Not yet wired (next steps)
 
-- Web Push: VAPID subscribe/unsubscribe Server Actions, a
-  `web_push_subscriptions` table, and teaching the `send-push` Edge Function
-  to deliver via Web Push alongside Expo tokens
 - Production PNG icons (192/512 + maskable) to replace `icon.svg`
