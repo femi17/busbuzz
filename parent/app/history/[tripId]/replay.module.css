@@ -1,0 +1,145 @@
+/* Trip replay — map + scrubber + moment timeline */
+
+.map {
+  position: relative;
+  height: 320px;
+  border-radius: 20px;
+  overflow: hidden;
+  border: 1px solid var(--line);
+  background: #ede7d7;
+}
+
+.noToken {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 13px;
+  color: var(--muted);
+  padding: 20px;
+  text-align: center;
+}
+
+.clock {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  background: rgba(26, 23, 18, 0.85);
+  color: #fff;
+  font-family: var(--mono);
+  font-size: 12px;
+  font-weight: 600;
+  padding: 5px 10px;
+  border-radius: 999px;
+}
+
+/* markers (attached to Mapbox marker elements) */
+.stopDot {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: #fff;
+  border: 2.5px solid #1a1712;
+  opacity: 0.55;
+  transition: opacity 0.2s, background 0.2s;
+}
+.stopReached {
+  background: #f4b01a;
+  opacity: 1;
+}
+.stopMine {
+  width: 16px;
+  height: 16px;
+  border-color: #e8412a;
+  opacity: 1;
+}
+.busDot {
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: #f4b01a;
+  border: 3px solid #fff;
+  box-shadow: 0 0 0 5px rgba(244, 176, 26, 0.25);
+}
+
+.controls {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-top: 14px;
+}
+.playBtn {
+  width: 46px;
+  height: 46px;
+  border-radius: 50%;
+  border: none;
+  background: var(--danfo);
+  color: var(--asphalt);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+.playBtn svg { width: 22px; height: 22px; }
+
+.scrubber {
+  flex: 1;
+  accent-color: #f4b01a;
+  height: 28px;
+}
+
+.elapsed {
+  font-family: var(--mono);
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--asphalt);
+  flex-shrink: 0;
+}
+.elapsed small { color: var(--muted); font-size: 11px; }
+
+.summary {
+  margin-top: 10px;
+  font-size: 13px;
+  color: var(--muted);
+}
+.summary b { color: var(--asphalt); font-family: var(--mono); font-size: 12px; }
+
+.moments {
+  margin-top: 16px;
+  display: flex;
+  flex-direction: column;
+}
+.moment {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  padding: 10px 2px;
+  border: none;
+  border-bottom: 1px solid var(--line);
+  background: none;
+  text-align: left;
+  cursor: pointer;
+  opacity: 0.5;
+  transition: opacity 0.2s;
+}
+.moment:last-child { border-bottom: none; }
+.momentPassed { opacity: 1; }
+.momentTime {
+  font-family: var(--mono);
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--muted);
+  flex-shrink: 0;
+  width: 64px;
+}
+.momentLabel { font-size: 14px; font-weight: 500; color: var(--asphalt); }
+.momentMine .momentLabel { font-weight: 700; }
+
+.noData {
+  padding: 40px 20px;
+  text-align: center;
+  font-size: 14px;
+  color: var(--muted);
+}

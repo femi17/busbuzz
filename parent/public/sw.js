@@ -20,8 +20,8 @@ self.addEventListener("push", function (event) {
   }
   const options = {
     body: data.body,
-    icon: data.icon || "/icon.svg",
-    badge: "/icon.svg",
+    icon: data.icon || "/icon-192.png",
+    badge: "/icon-192.png",
     vibrate: [90, 40, 90],
     tag: data.tag,
     data: { url: data.url || "/", ...data.data },

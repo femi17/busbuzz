@@ -44,7 +44,7 @@ export default async function HistoryPage({
 
   let groups: Array<{
     day: string;
-    trips: Array<{ run: Run; route: string; text: string; status: Status }>;
+    trips: Array<{ id: string; run: Run; route: string; text: string; status: Status }>;
   }> = [];
 
   if (student?.routeId && demo !== "empty") {
@@ -110,7 +110,7 @@ export default async function HistoryPage({
       }`;
 
       const group = groups.find((g) => g.day === day);
-      const row = { run, route: routeName, text, status };
+      const row = { id: t.id, run, route: routeName, text, status };
       if (group) group.trips.push(row);
       else groups.push({ day, trips: [row] });
     }
@@ -142,7 +142,8 @@ export default async function HistoryPage({
         <section key={g.day}>
           <div className={screen.sectionLabel}>{g.day}</div>
           {g.trips.map((t, i) => (
-            <div key={i} className={styles.trip}>
+            // Each run links to its journey replay (map + scrubbable timeline).
+            <a key={i} href={`/history/${t.id}`} className={`${styles.trip} ${styles.tripLink}`}>
               <div className={`${styles.icon} ${styles[t.run]}`}>
                 {t.run === "morning" ? (
                   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -164,7 +165,7 @@ export default async function HistoryPage({
               <span className={`${styles.badge} ${styles[badgeClass[t.status]]}`}>
                 {label[t.status]}
               </span>
-            </div>
+            </a>
           ))}
         </section>
       ))}

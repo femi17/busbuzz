@@ -4,8 +4,11 @@ import { createClient } from 'npm:@supabase/supabase-js@2';
 // breadcrumbs, the route's stops with their geofence-arrival times, and the
 // attendance events (boarded / dropped off / absent) with driver timestamps —
 // all normalised to milliseconds since trip start so the client can scrub a
-// single timeline. Read-only, SCHOOL_ADMIN / SUPER_ADMIN, scoped to the trip's
-// own school via a service-role read after an ownership check.
+// single timeline. Read-only, via a service-role read after an ownership
+// check: SCHOOL_ADMIN / SUPER_ADMIN get any trip in their school (all
+// attendance events); a PARENT gets trips on their own child's route, with
+// events filtered to their own children only — no other family's child is
+// ever named in a parent's replay.
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -54,20 +57,16 @@ Deno.serve(async (req: Request) => {
     .eq('id', userData.user.id)
     .single();
 
-  if (
-    profileError ||
-    !profile ||
-    (profile.role !== 'SCHOOL_ADMIN' && profile.role !== 'SUPER_ADMIN')
-  ) {
-    return jsonResponse(
-      { error: 'Forbidden: SCHOOL_ADMIN or SUPER_ADMIN role required', statusCode: 403 },
-      403,
-    );
+  const role = profile?.role as string | undefined;
+  const isAdmin = role === 'SCHOOL_ADMIN' || role === 'SUPER_ADMIN';
+  const isParent = role === 'PARENT';
+  if (profileError || !profile || (!isAdmin && !isParent)) {
+    return jsonResponse({ error: 'Forbidden', statusCode: 403 }, 403);
   }
-  if (!profile.school_id) {
+  if (isAdmin && !profile.school_id) {
     return jsonResponse({ error: 'No school associated with this account', statusCode: 403 }, 403);
   }
-  const schoolId = profile.school_id as string;
+  const schoolId = (profile.school_id as string | null) ?? null;
 
   const url = new URL(req.url);
   const tripId = url.searchParams.get('tripId') ?? '';
@@ -94,8 +93,28 @@ Deno.serve(async (req: Request) => {
       return jsonResponse({ error: 'Trip not found', statusCode: 404 }, 404);
     }
     const route = trip.route as { id: string; name: string; type: string; school_id: string } | null;
-    if (!route || route.school_id !== schoolId) {
+    if (!route) {
       return jsonResponse({ error: 'Trip not found', statusCode: 404 }, 404);
+    }
+
+    // Ownership: admins must own the school; parents must have a child on
+    // this trip's route. Both failures 404 rather than 403 so a probing
+    // caller can't distinguish "exists but not yours" from "doesn't exist".
+    let ownStudentIds: Set<string> | null = null; // null = no event filtering (admin)
+    if (isAdmin) {
+      if (route.school_id !== schoolId) {
+        return jsonResponse({ error: 'Trip not found', statusCode: 404 }, 404);
+      }
+    } else {
+      const { data: links, error: linksError } = await service
+        .from('student_parents')
+        .select('student_id, students!inner(route_id)')
+        .eq('parent_id', userData.user.id)
+        .eq('students.route_id', trip.route_id);
+      if (linksError || !links || links.length === 0) {
+        return jsonResponse({ error: 'Trip not found', statusCode: 404 }, 404);
+      }
+      ownStudentIds = new Set(links.map((l: { student_id: string }) => l.student_id));
     }
 
     const startMs = new Date(trip.started_at).getTime();
@@ -157,6 +176,9 @@ Deno.serve(async (req: Request) => {
     );
 
     const events = (attendanceRes.data ?? [])
+      .filter((a: { student_id: string }) =>
+        ownStudentIds === null || ownStudentIds.has(a.student_id),
+      )
       .map((a: {
         student_id: string;
         status: string;
