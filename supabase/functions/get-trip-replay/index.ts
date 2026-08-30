@@ -145,7 +145,7 @@ Deno.serve(async (req: Request) => {
       return jsonResponse({ error: 'Database query failed', statusCode: 500 }, 500);
     }
 
-    const points = (locationsRes.data ?? []).map(
+    let points = (locationsRes.data ?? []).map(
       (p: { latitude: number; longitude: number; speed: number | null; recorded_at: string }) => ({
         lat: p.latitude,
         lng: p.longitude,
@@ -157,11 +157,50 @@ Deno.serve(async (req: Request) => {
 
     // Fall back to the last breadcrumb time when the trip was never formally ended.
     const lastPointT = points.length > 0 ? points[points.length - 1].t : 0;
-    const durationMs = endMs !== null ? endMs - startMs : lastPointT;
+    let durationMs = endMs !== null ? endMs - startMs : lastPointT;
 
     const triggerByStop = new Map<string, number>();
     for (const tr of triggersRes.data ?? []) {
       triggerByStop.set(tr.stop_id, new Date(tr.triggered_at).getTime() - startMs);
+    }
+
+    // Raw pings are purged after 30 days (see the retention job); the
+    // nightly trip_summaries roll-up keeps a simplified ~200-point path and
+    // per-stop arrival times forever. When the raw breadcrumbs are gone,
+    // rebuild the replay from the summary — point timestamps are synthetic
+    // (evenly spaced across the trip duration) but the shape and stop
+    // times are real.
+    if (points.length === 0) {
+      const { data: summary } = await service
+        .from('trip_summaries')
+        .select('path, stop_arrivals, duration_s')
+        .eq('trip_id', tripId)
+        .maybeSingle();
+
+      const coords = (summary?.path ?? null) as [number, number][] | null;
+      if (coords && coords.length > 0) {
+        if (durationMs <= 0) {
+          durationMs = (summary?.duration_s ?? 0) * 1000 || coords.length * 10_000;
+        }
+        points = coords.map(([lng, lat], i) => {
+          const t = coords.length > 1 ? Math.round((i / (coords.length - 1)) * durationMs) : 0;
+          return {
+            lat,
+            lng,
+            speed: null,
+            t,
+            recordedAt: new Date(startMs + t).toISOString(),
+          };
+        });
+      }
+      const arrivals = (summary?.stop_arrivals ?? null) as
+        | Array<{ stop_id: string; arrived_at: string | null }>
+        | null;
+      for (const sa of arrivals ?? []) {
+        if (sa.arrived_at && !triggerByStop.has(sa.stop_id)) {
+          triggerByStop.set(sa.stop_id, new Date(sa.arrived_at).getTime() - startMs);
+        }
+      }
     }
 
     const stops = (stopsRes.data ?? []).map(
