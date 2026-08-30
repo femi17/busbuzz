@@ -103,11 +103,28 @@ function chunk<T>(arr: T[], size: number): T[][] {
 // a parent may have both the PWA and a native install; each device row
 // gets its own delivery. Skipped entirely when the VAPID_KEYS secret is
 // missing so Expo delivery never depends on the PWA setup.
+// Secrets come from the function's env when set there, else from the
+// service-role-only app_secrets table (RLS with no policies — populated
+// via the Supabase MCP, which has no env-secrets API).
+async function loadSecret(
+  supabase: ReturnType<typeof createClient>,
+  key: string,
+): Promise<string | null> {
+  const env = Deno.env.get(key);
+  if (env) return env;
+  const { data } = await supabase
+    .from('app_secrets')
+    .select('value')
+    .eq('key', key)
+    .maybeSingle();
+  return (data?.value as string | undefined) ?? null;
+}
+
 async function sendWebPush(
   supabase: ReturnType<typeof createClient>,
   validated: SendPushBody,
 ): Promise<{ sent: number; failed: number }> {
-  const vapidKeysJson = Deno.env.get('VAPID_KEYS');
+  const vapidKeysJson = await loadSecret(supabase, 'VAPID_KEYS');
   if (!vapidKeysJson) return { sent: 0, failed: 0 };
 
   const { data: subRows, error: subError } = await supabase
@@ -126,7 +143,8 @@ async function sendWebPush(
     extractable: false,
   });
   const appServer = await webpush.ApplicationServer.new({
-    contactInformation: Deno.env.get('WEB_PUSH_CONTACT') ?? 'mailto:hello@busbuzz.com.ng',
+    contactInformation:
+      (await loadSecret(supabase, 'WEB_PUSH_CONTACT')) ?? 'mailto:hello@busbuzz.com.ng',
     vapidKeys,
   });
 
