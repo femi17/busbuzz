@@ -450,6 +450,15 @@ function ChildAvatar({
   student: LinkedStudent;
   students: Array<{ id: string; name: string }>;
 }) {
+  // The child's actual photo when the school uploaded one (photo_url is a
+  // long-lived signed URL — the photos bucket is private), else initials.
+  const face = student.photoUrl ? (
+    // eslint-disable-next-line @next/next/no-img-element
+    <img src={student.photoUrl} alt={student.name} />
+  ) : (
+    getInitials(student.name)[0]
+  );
+
   // With several children the avatar cycles to the next one; the server
   // page reads ?child= and re-renders the whole tracker for that child.
   if (students.length > 1) {
@@ -462,11 +471,11 @@ function ChildAvatar({
         aria-label={`Switch to ${next.name}`}
         title={`Switch to ${next.name}`}
       >
-        {getInitials(student.name)[0]}
+        {face}
       </a>
     );
   }
-  return <div className={styles.avatar}>{getInitials(student.name)[0]}</div>;
+  return <div className={styles.avatar}>{face}</div>;
 }
 
 function ActiveView({

@@ -121,3 +121,13 @@
   flex-shrink: 0;
 }
 .call svg { width: 18px; height: 18px; }
+
+/* Real photos fill the child hero and contact avatars when they exist */
+.avatar,
+.gav { overflow: hidden; }
+.avatar img,
+.gav img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}

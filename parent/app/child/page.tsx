@@ -76,19 +76,35 @@ export default async function ChildPage({
           name: bundle.driver.name,
           role: "Bus driver",
           phone: bundle.driver.phone,
+          photoUrl: bundle.driver.photoUrl,
         }
       : null,
     profile?.name
-      ? { name: profile.name, role: "You · Guardian", phone: profile.phone ?? null }
+      ? {
+          name: profile.name,
+          role: "You · Guardian",
+          phone: profile.phone ?? null,
+          photoUrl: null,
+        }
       : null,
-  ].filter((c): c is { name: string; role: string; phone: string | null } => !!c);
+  ].filter(
+    (c): c is { name: string; role: string; phone: string | null; photoUrl: string | null } =>
+      !!c,
+  );
 
   return (
     <main className="app">
       <ScreenHeader title="Child profile" />
 
       <div className={styles.hero}>
-        <div className={styles.avatar}>{getInitials(student.name)[0]}</div>
+        <div className={styles.avatar}>
+          {student.photoUrl ? (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img src={student.photoUrl} alt={student.name} />
+          ) : (
+            getInitials(student.name)[0]
+          )}
+        </div>
         <div>
           <div className={styles.name}>{student.name}</div>
           <div className={styles.klass}>{student.className}</div>
@@ -125,7 +141,14 @@ export default async function ChildPage({
       <div className={screen.card}>
         {contacts.map((g) => (
           <div key={g.role} className={styles.guardian}>
-            <div className={styles.gav}>{getInitials(g.name)[0]}</div>
+            <div className={styles.gav}>
+              {g.photoUrl ? (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img src={g.photoUrl} alt={g.name} />
+              ) : (
+                getInitials(g.name)[0]
+              )}
+            </div>
             <div className={styles.gbody}>
               <div className={styles.gname}>{g.name}</div>
               <div className={styles.gmeta}>
