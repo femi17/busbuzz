@@ -1,0 +1,19 @@
+<svg width="512" height="512" viewBox="0 0 512 512" xmlns="http://www.w3.org/2000/svg">
+  <rect width="512" height="512" rx="112" fill="#1A1712"/>
+  <!-- route line -->
+  <path d="M96 380 C 180 380, 180 200, 300 200 S 430 130, 430 130"
+        fill="none" stroke="#F4B01A" stroke-width="14" stroke-linecap="round" opacity="0.85"/>
+  <circle cx="96" cy="380" r="14" fill="#F4B01A"/>
+  <!-- danfo bus -->
+  <g transform="translate(256 200)">
+    <circle r="86" fill="#F4B01A" opacity="0.18"/>
+    <g transform="translate(-64 -44)">
+      <rect x="0" y="0" width="128" height="80" rx="16" fill="#F4B01A"/>
+      <rect x="16" y="16" width="32" height="28" rx="6" fill="#1A1712"/>
+      <rect x="60" y="16" width="32" height="28" rx="6" fill="#1A1712"/>
+      <rect x="100" y="16" width="16" height="28" rx="4" fill="#1A1712"/>
+      <circle cx="36" cy="86" r="13" fill="#1A1712"/>
+      <circle cx="92" cy="86" r="13" fill="#1A1712"/>
+    </g>
+  </g>
+</svg>

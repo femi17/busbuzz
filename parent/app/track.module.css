@@ -1,0 +1,326 @@
+/* Track screen — the parent PWA hero. Ported from /design/mockups/parent-track.html */
+
+.greet {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin: 6px 0 18px;
+}
+.greet h1 {
+  font-family: var(--display);
+  font-size: 24px;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  line-height: 1.05;
+}
+.sub {
+  color: var(--muted);
+  font-size: 13px;
+  margin-top: 2px;
+  font-weight: 500;
+}
+.avatar {
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, #f4b01a, #d9930a);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-family: var(--display);
+  font-weight: 700;
+  color: #fff;
+  font-size: 17px;
+  flex-shrink: 0;
+}
+
+/* countdown board */
+.board {
+  background: var(--asphalt);
+  border-radius: 24px;
+  padding: 22px 22px 20px;
+  color: var(--paper);
+  position: relative;
+  overflow: hidden;
+}
+.board::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: repeating-linear-gradient(90deg, transparent 0 6px, rgba(255, 255, 255, 0.015) 6px 7px);
+  pointer-events: none;
+}
+.eyebrow {
+  font-family: var(--mono);
+  font-size: 11px;
+  letter-spacing: 0.18em;
+  color: var(--danfo);
+  font-weight: 600;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.livedot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--signal);
+  box-shadow: 0 0 0 0 rgba(31, 169, 113, 0.6);
+  animation: pulse 2s infinite;
+}
+@keyframes pulse {
+  0% { box-shadow: 0 0 0 0 rgba(31, 169, 113, 0.5); }
+  70% { box-shadow: 0 0 0 8px rgba(31, 169, 113, 0); }
+  100% { box-shadow: 0 0 0 0 rgba(31, 169, 113, 0); }
+}
+.time {
+  font-family: var(--mono);
+  font-size: 56px;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  line-height: 1;
+  margin: 12px 0 4px;
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  font-variant-numeric: tabular-nums;
+}
+.time small {
+  font-size: 16px;
+  font-weight: 500;
+  color: var(--muted);
+  letter-spacing: 0;
+}
+.where { font-size: 14px; color: #cfc7b8; font-weight: 500; }
+.where b { color: var(--paper); font-weight: 600; }
+
+/* map */
+.map {
+  margin-top: 16px;
+  border-radius: 24px;
+  overflow: hidden;
+  height: 240px;
+  position: relative;
+  background: #ede7d7;
+  border: 1px solid var(--line);
+}
+.map :global(.mapboxgl-map) { position: absolute; inset: 0; }
+.map svg { position: absolute; inset: 0; width: 100%; height: 100%; }
+.maptag {
+  position: absolute;
+  left: 14px;
+  bottom: 14px;
+  background: rgba(26, 23, 18, 0.82);
+  color: var(--paper);
+  font-family: var(--mono);
+  font-size: 11px;
+  font-weight: 500;
+  padding: 7px 11px;
+  border-radius: 10px;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  backdrop-filter: blur(4px);
+  z-index: 2;
+}
+.speed {
+  position: absolute;
+  right: 14px;
+  top: 14px;
+  background: var(--paper);
+  border: 1px solid var(--line);
+  font-family: var(--mono);
+  font-size: 12px;
+  font-weight: 600;
+  padding: 6px 10px;
+  border-radius: 10px;
+  color: var(--ink);
+  z-index: 2;
+}
+
+/* the line */
+.linehead {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin: 24px 2px 12px;
+}
+.linehead h2 {
+  font-family: var(--mono);
+  font-size: 12px;
+  letter-spacing: 0.16em;
+  color: var(--muted);
+  font-weight: 600;
+}
+.linehead a { font-size: 13px; color: var(--danfo-deep); font-weight: 600; }
+
+.spine { position: relative; padding-left: 6px; }
+.stop {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  position: relative;
+  padding: 9px 0;
+}
+.rail {
+  position: absolute;
+  left: 9px;
+  top: 0;
+  bottom: 0;
+  width: 3px;
+  background: var(--line);
+  border-radius: 3px;
+}
+.railDone {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  background: var(--danfo);
+  border-radius: 3px;
+  height: 42%;
+}
+.node {
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: var(--paper);
+  border: 3px solid var(--line);
+  z-index: 2;
+  flex-shrink: 0;
+}
+.done .node { background: var(--danfo); border-color: var(--danfo); }
+.busStop { padding: 4px 0; }
+.busStop .node {
+  width: 34px;
+  height: 34px;
+  background: var(--danfo);
+  border: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 0 0 6px rgba(244, 176, 26, 0.22), 0 6px 14px -4px rgba(217, 147, 10, 0.6);
+  margin-left: -7px;
+}
+.mine .node { border-color: var(--asphalt); background: var(--paper); }
+.txt { display: flex; flex-direction: column; }
+.name { font-size: 15px; font-weight: 600; color: var(--ink); }
+.done .name, .dim { color: var(--muted); font-weight: 500; }
+.meta { font-size: 12px; color: var(--muted); font-family: var(--mono); margin-top: 1px; }
+.tag {
+  margin-left: auto;
+  font-size: 11px;
+  font-family: var(--mono);
+  font-weight: 600;
+  padding: 4px 9px;
+  border-radius: 20px;
+}
+.tagDone { color: var(--signal); background: rgba(31, 169, 113, 0.1); }
+.tagMine { color: var(--asphalt); background: var(--danfo); }
+.tagNow { color: var(--danfo-deep); background: rgba(244, 176, 26, 0.14); }
+
+/* ---- idle / off-hours state (no bus running right now) ---- */
+.idle {
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: 24px;
+  padding: 22px;
+}
+.idleEye {
+  font-family: var(--mono);
+  font-size: 11px;
+  letter-spacing: 0.18em;
+  color: var(--muted);
+  font-weight: 600;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  text-transform: uppercase;
+}
+.idleDot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--line);
+  border: 2px solid var(--muted);
+}
+.idleTime {
+  font-family: var(--display);
+  font-size: 40px;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  line-height: 1;
+  margin: 12px 0 4px;
+  color: var(--ink);
+}
+.idleWhere { font-size: 14px; color: var(--muted); font-weight: 500; }
+.idleWhere b { color: var(--ink); font-weight: 600; }
+.idleNote {
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--muted);
+  margin-top: 14px;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  line-height: 1.4;
+}
+.idleNote svg { width: 14px; height: 14px; flex-shrink: 0; color: var(--danfo-deep); }
+
+/* today's schedule (idle) */
+.sched { margin-top: 6px; }
+.schedRow {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 13px 2px;
+  border-top: 1px solid var(--line);
+}
+.schedRow:first-child { border-top: none; }
+.schedTime {
+  font-family: var(--mono);
+  font-size: 13px;
+  font-weight: 600;
+  width: 74px;
+  flex-shrink: 0;
+}
+.schedName { font-size: 15px; font-weight: 600; flex: 1; }
+.schedRow.past .schedTime,
+.schedRow.past .schedName { color: var(--muted); font-weight: 500; }
+.schedTag {
+  font-family: var(--mono);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  padding: 5px 9px;
+  border-radius: 20px;
+  white-space: nowrap;
+}
+.schedDone { color: var(--signal); background: rgba(31, 169, 113, 0.12); }
+.schedNext { color: var(--asphalt); background: var(--danfo); }
+
+/* last-trip recap (idle) */
+.recap {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  background: rgba(31, 169, 113, 0.08);
+  border: 1px solid rgba(31, 169, 113, 0.28);
+  border-radius: 16px;
+  padding: 13px 15px;
+  margin-top: 14px;
+}
+.recapIcon {
+  width: 34px;
+  height: 34px;
+  border-radius: 10px;
+  background: var(--signal);
+  color: #fff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+.recapIcon svg { width: 18px; height: 18px; }
+.recapText { font-size: 13px; line-height: 1.35; }
+.recapText b { font-weight: 600; }

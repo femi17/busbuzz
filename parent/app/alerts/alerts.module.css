@@ -1,0 +1,60 @@
+/* Alerts feed — the notification history parents get pushed. */
+
+.item {
+  display: flex;
+  gap: 13px;
+  padding: 13px 0;
+  border-bottom: 1px solid var(--line);
+}
+.item:last-child { border-bottom: none; }
+
+.dot {
+  width: 38px;
+  height: 38px;
+  border-radius: 12px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+.dot svg { width: 20px; height: 20px; }
+.boarded { background: rgba(31, 169, 113, 0.14); color: var(--signal); }
+.approach { background: rgba(244, 176, 26, 0.16); color: var(--danfo-deep); }
+.dropped { background: rgba(26, 23, 18, 0.06); color: var(--asphalt); }
+.sos { background: rgba(232, 65, 42, 0.14); color: var(--alert); }
+
+.body { flex: 1; min-width: 0; }
+.head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+}
+.title { font-size: 14px; font-weight: 600; }
+.time {
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--muted);
+  flex-shrink: 0;
+}
+.text { font-size: 13px; color: var(--muted); margin-top: 2px; line-height: 1.4; }
+
+/* an SOS gets the full alert treatment */
+.sosRow {
+  background: rgba(232, 65, 42, 0.06);
+  border: 1px solid rgba(232, 65, 42, 0.3);
+  border-radius: 16px;
+  padding: 13px;
+  margin: 4px 0;
+}
+.sosRow .title { color: var(--alert); }
+.sosRow { border-bottom: 1px solid rgba(232, 65, 42, 0.3); }
+
+.unread {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--danfo);
+  flex-shrink: 0;
+  align-self: center;
+}

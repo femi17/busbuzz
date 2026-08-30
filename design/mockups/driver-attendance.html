@@ -1,0 +1,128 @@
+<!DOCTYPE html>
+<!-- @dsCard group="Driver App" -->
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Driver App · Attendance</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,400..800&family=Hanken+Grotesk:wght@400;500;600;700;800&family=Martian+Mono:wght@400;500;600;700&display=swap" rel="stylesheet" />
+<style>
+  :root{
+    --asphalt:#161311; --panel:#221D19; --panel2:#2C2621; --danfo:#F4B01A;
+    --signal:#24C07A; --alert:#FF4D3D; --paper:#F7F2E8; --muted:#948B7E; --line:#38312B;
+    --display:'Bricolage Grotesque',sans-serif; --body:'Hanken Grotesk',sans-serif; --mono:'Martian Mono',monospace;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{background:#0C0A09;font-family:var(--body);display:flex;justify-content:center;align-items:flex-start;padding:32px 16px;min-height:100vh;-webkit-font-smoothing:antialiased}
+  .phone{width:390px;min-height:844px;background:var(--asphalt);border-radius:44px;overflow:hidden;position:relative;box-shadow:0 40px 80px -20px rgba(0,0,0,.6);border:1px solid #2a231e}
+  .status{height:52px;display:flex;align-items:center;justify-content:space-between;padding:0 28px;font-family:var(--mono);font-size:12px;color:var(--paper);font-weight:600}
+
+  /* instrument header */
+  .cluster{padding:6px 20px 18px;border-bottom:1px solid var(--line)}
+  .route{display:flex;align-items:center;justify-content:space-between}
+  .route .name{font-family:var(--display);font-size:22px;font-weight:700;color:var(--paper);letter-spacing:-.01em}
+  .route .name span{color:var(--danfo)}
+  .live{display:flex;align-items:center;gap:7px;font-family:var(--mono);font-size:11px;font-weight:600;color:var(--signal);background:rgba(36,192,122,.12);padding:6px 10px;border-radius:20px;letter-spacing:.08em}
+  .live .dot{width:7px;height:7px;border-radius:50%;background:var(--signal);animation:pulse 1.8s infinite}
+  @keyframes pulse{0%{box-shadow:0 0 0 0 rgba(36,192,122,.5)}70%{box-shadow:0 0 0 7px rgba(36,192,122,0)}100%{box-shadow:0 0 0 0 rgba(36,192,122,0)}}
+  .meters{display:flex;gap:10px;margin-top:16px}
+  .meter{flex:1;background:var(--panel);border:1px solid var(--line);border-radius:16px;padding:11px 13px}
+  .meter .k{font-family:var(--mono);font-size:9px;letter-spacing:.14em;color:var(--muted);font-weight:600}
+  .meter .v{font-family:var(--mono);font-size:22px;font-weight:700;color:var(--paper);margin-top:3px}
+  .meter .v.amber{color:var(--danfo)}
+
+  /* next stop banner */
+  .next{margin:16px 20px 6px;background:linear-gradient(100deg,#2C2621,#221D19);border:1px solid var(--line);border-radius:18px;padding:15px 18px;display:flex;align-items:center;justify-content:space-between}
+  .next .k{font-family:var(--mono);font-size:10px;letter-spacing:.16em;color:var(--danfo);font-weight:600}
+  .next .stop{font-family:var(--display);font-size:19px;font-weight:700;color:var(--paper);margin-top:3px}
+  .next .cnt{text-align:right}
+  .next .cnt .num{font-family:var(--mono);font-size:28px;font-weight:700;color:var(--paper)}
+  .next .cnt .lbl{font-family:var(--mono);font-size:9px;letter-spacing:.1em;color:var(--muted)}
+
+  .list{padding:8px 20px 190px}
+  .progress{display:flex;align-items:center;gap:12px;margin:12px 2px 14px}
+  .bar{flex:1;height:8px;background:var(--panel);border-radius:8px;overflow:hidden}
+  .bar i{display:block;height:100%;width:33%;background:var(--signal);border-radius:8px}
+  .progress .p{font-family:var(--mono);font-size:12px;color:var(--paper);font-weight:600}
+
+  /* student stamp cards */
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:20px;padding:16px;margin-bottom:12px;transition:.2s}
+  .card .who{display:flex;align-items:center;gap:13px;margin-bottom:14px}
+  .pfp{width:46px;height:46px;border-radius:14px;background:var(--panel2);border:1px solid var(--line);display:flex;align-items:center;justify-content:center;font-family:var(--display);font-weight:700;color:var(--paper);font-size:18px;flex-shrink:0}
+  .who .nm{font-family:var(--display);font-size:18px;font-weight:700;color:var(--paper);letter-spacing:-.01em}
+  .who .cls{font-family:var(--mono);font-size:11px;color:var(--muted);margin-top:2px}
+  .who .status{margin-left:auto;height:auto;padding:0}
+  .badge{font-family:var(--mono);font-size:11px;font-weight:600;padding:6px 12px;border-radius:20px;display:flex;align-items:center;gap:6px}
+  .badge.on{color:var(--signal);background:rgba(36,192,122,.14)}
+  .badge.off{color:var(--alert);background:rgba(255,77,61,.14)}
+  .btns{display:flex;gap:10px}
+  .btn{flex:1;height:58px;border-radius:15px;border:none;font-family:var(--display);font-size:17px;font-weight:700;letter-spacing:.01em;display:flex;align-items:center;justify-content:center;gap:9px;cursor:pointer;transition:.15s}
+  .btn.board{background:var(--signal);color:#06281A}
+  .btn.absent{background:transparent;color:var(--alert);border:2px solid rgba(255,77,61,.4)}
+  .card.stamped{opacity:.72}
+  .card.stamped .btns{display:none}
+
+  /* end trip */
+  .foot{position:absolute;bottom:0;left:0;right:0;padding:16px 20px 26px;background:linear-gradient(transparent,var(--asphalt) 28%)}
+  .end{width:100%;height:66px;border-radius:20px;background:var(--panel);border:1px solid var(--line);color:var(--paper);font-family:var(--display);font-size:17px;font-weight:700;display:flex;align-items:center;justify-content:center;gap:12px;position:relative;overflow:hidden}
+  .end .fill{position:absolute;left:0;top:0;bottom:0;width:22%;background:rgba(255,77,61,.18)}
+  .end .hint{font-family:var(--mono);font-size:10px;color:var(--muted);letter-spacing:.1em;font-weight:500}
+</style>
+</head>
+<body>
+  <div class="phone">
+    <div class="status"><span>8:14</span><span>BusBuzz Driver</span><span>5G ▪ chg</span></div>
+
+    <div class="cluster">
+      <div class="route">
+        <div class="name">Morning Run <span>· Rt 3</span></div>
+        <div class="live"><span class="dot"></span>BROADCASTING</div>
+      </div>
+      <div class="meters">
+        <div class="meter"><div class="k">CLOCK</div><div class="v">08:14</div></div>
+        <div class="meter"><div class="k">SPEED</div><div class="v amber">32</div></div>
+        <div class="meter"><div class="k">ELAPSED</div><div class="v">16:02</div></div>
+      </div>
+    </div>
+
+    <div class="next">
+      <div><div class="k">NEXT STOP</div><div class="stop">Admiralty Way</div></div>
+      <div class="cnt"><div class="num">6</div><div class="lbl">KIDS HERE</div></div>
+    </div>
+
+    <div class="list">
+      <div class="progress"><span class="p">4 boarded</span><div class="bar"><i></i></div><span class="p">12 total</span></div>
+
+      <div class="card">
+        <div class="who"><div class="pfp">C</div><div><div class="nm">Chidi Okafor</div><div class="cls">JSS 1 · SEAT 04</div></div></div>
+        <div class="btns">
+          <button class="btn board"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6L9 17l-5-5"/></svg>BOARDED</button>
+          <button class="btn absent"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round"><path d="M18 6L6 18M6 6l12 12"/></svg>ABSENT</button>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="who"><div class="pfp">A</div><div><div class="nm">Ada Bello</div><div class="cls">JSS 2 · SEAT 07</div></div></div>
+        <div class="btns">
+          <button class="btn board"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6L9 17l-5-5"/></svg>BOARDED</button>
+          <button class="btn absent"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round"><path d="M18 6L6 18M6 6l12 12"/></svg>ABSENT</button>
+        </div>
+      </div>
+
+      <div class="card stamped">
+        <div class="who"><div class="pfp">T</div><div><div class="nm">Tobi Adeyemi</div><div class="cls">JSS 1 · SEAT 02</div></div><span class="badge on"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6L9 17l-5-5"/></svg>BOARDED 8:11</span></div>
+      </div>
+
+      <div class="card stamped">
+        <div class="who"><div class="pfp">N</div><div><div class="nm">Nneka Uche</div><div class="cls">JSS 3 · SEAT 09</div></div><span class="badge off"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round"><path d="M18 6L6 18M6 6l12 12"/></svg>ABSENT</span></div>
+      </div>
+    </div>
+
+    <div class="foot">
+      <button class="end"><div class="fill"></div><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><rect x="6" y="6" width="12" height="12" rx="2"/></svg>HOLD TO END TRIP <span class="hint">3s</span></button>
+    </div>
+  </div>
+</body>
+</html>

@@ -1,0 +1,76 @@
+<!DOCTYPE html>
+<!-- @dsCard group="Driver App" -->
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Driver App · Start Trip</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,400..800&family=Hanken+Grotesk:wght@400;500;600;700;800&family=Martian+Mono:wght@400;500;600;700&display=swap" rel="stylesheet" />
+<style>
+  :root{--asphalt:#161311;--panel:#221D19;--panel2:#2C2621;--danfo:#F4B01A;--danfo-deep:#D9930A;--signal:#24C07A;--paper:#F7F2E8;--muted:#948B7E;--line:#38312B;
+    --display:'Bricolage Grotesque',sans-serif;--body:'Hanken Grotesk',sans-serif;--mono:'Martian Mono',monospace;}
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{background:#0C0A09;font-family:var(--body);display:flex;justify-content:center;padding:32px 16px;min-height:100vh;-webkit-font-smoothing:antialiased}
+  .phone{width:390px;min-height:844px;background:var(--asphalt);border-radius:44px;overflow:hidden;position:relative;box-shadow:0 40px 80px -20px rgba(0,0,0,.6);display:flex;flex-direction:column}
+  .status{height:52px;display:flex;align-items:center;justify-content:space-between;padding:0 28px;font-family:var(--mono);font-size:12px;color:var(--paper);font-weight:600}
+  .screen{padding:10px 22px 30px;flex:1;display:flex;flex-direction:column}
+
+  .hi{display:flex;align-items:center;justify-content:space-between;margin-bottom:6px}
+  .hi .g{font-family:var(--mono);font-size:11px;letter-spacing:.14em;color:var(--muted);font-weight:600}
+  .hi .n{font-family:var(--display);font-size:26px;font-weight:800;color:var(--paper);letter-spacing:-.01em;margin-top:4px}
+  .clock{font-family:var(--mono);font-size:15px;color:var(--danfo);font-weight:600}
+
+  .run{margin-top:22px;background:linear-gradient(150deg,#2C2621,#1d1815);border:1px solid var(--line);border-radius:24px;padding:22px;position:relative;overflow:hidden}
+  .run::before{content:"";position:absolute;top:-40px;right:-40px;width:150px;height:150px;background:radial-gradient(circle,rgba(244,176,26,.16),transparent 70%)}
+  .run .tag{font-family:var(--mono);font-size:11px;letter-spacing:.16em;color:var(--danfo);font-weight:600}
+  .run .rt{font-family:var(--display);font-size:30px;font-weight:800;color:var(--paper);margin:8px 0 4px;letter-spacing:-.02em}
+  .run .sub{font-size:14px;color:var(--muted);font-weight:500}
+  .run .stats{display:flex;gap:26px;margin-top:20px}
+  .run .stats .s .v{font-family:var(--mono);font-size:22px;font-weight:700;color:var(--paper)}
+  .run .stats .s .k{font-family:var(--mono);font-size:10px;letter-spacing:.1em;color:var(--muted);margin-top:2px}
+
+  .check{margin-top:18px;display:flex;flex-direction:column;gap:10px}
+  .row{display:flex;align-items:center;gap:13px;background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:13px 15px}
+  .row .ic{width:34px;height:34px;border-radius:10px;background:rgba(36,192,122,.14);display:flex;align-items:center;justify-content:center;flex-shrink:0}
+  .row .tx{font-size:14px;color:var(--paper);font-weight:600}
+  .row .tx small{display:block;font-family:var(--mono);font-size:11px;color:var(--muted);font-weight:500;margin-top:1px}
+  .row .ok{margin-left:auto;color:var(--signal)}
+
+  .start{margin-top:auto;width:100%;height:96px;border-radius:26px;background:var(--danfo);border:none;font-family:var(--display);font-size:26px;font-weight:800;color:var(--asphalt);letter-spacing:.01em;display:flex;align-items:center;justify-content:center;gap:14px;cursor:pointer;box-shadow:0 14px 30px -8px rgba(244,176,26,.5)}
+  .start svg{width:30px;height:30px}
+  .note{text-align:center;font-family:var(--mono);font-size:11px;color:var(--muted);margin-top:14px;letter-spacing:.04em}
+</style>
+</head>
+<body>
+  <div class="phone">
+    <div class="status"><span>7:52</span><span>BusBuzz Driver</span><span>5G ▪ chg</span></div>
+    <div class="screen">
+      <div class="hi">
+        <div><div class="g">DRIVER</div><div class="n">Musa Ibrahim</div></div>
+        <div class="clock">07:52</div>
+      </div>
+
+      <div class="run">
+        <div class="tag">TODAY · NEXT RUN</div>
+        <div class="rt">Morning Run</div>
+        <div class="sub">Route 3 · Lekki → Corona School</div>
+        <div class="stats">
+          <div class="s"><div class="v">12</div><div class="k">STUDENTS</div></div>
+          <div class="s"><div class="v">6</div><div class="k">STOPS</div></div>
+          <div class="s"><div class="v">28<span style="font-size:12px">min</span></div><div class="k">EST. RUN</div></div>
+        </div>
+      </div>
+
+      <div class="check">
+        <div class="row"><div class="ic"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#24C07A" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M9 11l3 3 8-8"/><path d="M20 12v6a2 2 0 01-2 2H6a2 2 0 01-2-2V6a2 2 0 012-2h9"/></svg></div><div class="tx">Location ready<small>GPS LOCKED · HIGH ACCURACY</small></div><div class="ok"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6L9 17l-5-5"/></svg></div></div>
+        <div class="row"><div class="ic"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#24C07A" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M23 6l-9.5 9.5-5-5L1 18"/></svg></div><div class="tx">Signal strong<small>5G · BROADCAST READY</small></div><div class="ok"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6L9 17l-5-5"/></svg></div></div>
+      </div>
+
+      <button class="start"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><polygon points="6 4 20 12 6 20 6 4" fill="currentColor"/></svg>START TRIP</button>
+      <div class="note">PARENTS ARE NOTIFIED WHEN YOU START</div>
+    </div>
+  </div>
+</body>
+</html>

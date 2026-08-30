@@ -1,0 +1,53 @@
+/* Trip history — past runs as receipt-like cards. */
+
+.trip {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: 18px;
+  padding: 14px 16px;
+}
+.trip + .trip { margin-top: 10px; }
+
+.icon {
+  width: 42px;
+  height: 42px;
+  border-radius: 12px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+.icon svg { width: 22px; height: 22px; }
+.morning { background: rgba(244, 176, 26, 0.16); color: var(--danfo-deep); }
+.afternoon { background: rgba(26, 23, 18, 0.06); color: var(--asphalt); }
+
+.body { flex: 1; min-width: 0; }
+.route { font-size: 15px; font-weight: 600; }
+.times {
+  font-family: var(--mono);
+  font-size: 12px;
+  color: var(--muted);
+  margin-top: 3px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.times b { color: var(--ink); font-weight: 600; }
+
+.badge {
+  font-family: var(--mono);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  padding: 5px 9px;
+  border-radius: 20px;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+.onTime { color: var(--signal); background: rgba(31, 169, 113, 0.12); }
+.late { color: var(--danfo-deep); background: rgba(244, 176, 26, 0.16); }
+.absent { color: var(--muted); background: rgba(26, 23, 18, 0.06); }

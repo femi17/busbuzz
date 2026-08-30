@@ -1,0 +1,60 @@
+/* ============================================================
+   BusBuzz Parent PWA — design tokens + base
+   Palette & type mirror /design/mockups. Danfo yellow is the
+   one signature colour, spent only on the bus and primary action.
+   ============================================================ */
+:root {
+  --asphalt: #1A1712;
+  --paper: #FBF7EF;
+  --danfo: #F4B01A;
+  --danfo-deep: #D9930A;
+  --signal: #1FA971;
+  --alert: #E8412A;
+  --ink: #1A1712;
+  --muted: #8A8175;
+  --line: #E7DECE;
+  --card: #FFFFFF;
+
+  /* next/font injects these on <html> (see layout.tsx) */
+  --display: var(--font-display), "Bricolage Grotesque", sans-serif;
+  --body: var(--font-body), "Hanken Grotesk", system-ui, sans-serif;
+  --mono: var(--font-mono), "Martian Mono", ui-monospace, monospace;
+}
+
+* { box-sizing: border-box; margin: 0; padding: 0; }
+
+html { -webkit-text-size-adjust: 100%; }
+
+body {
+  background: var(--paper);
+  color: var(--ink);
+  font-family: var(--body);
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+  overscroll-behavior-y: none;
+}
+
+/* Mobile-first column; centred with a soft device gutter on desktop */
+.app {
+  max-width: 480px;
+  margin: 0 auto;
+  min-height: 100dvh;
+  position: relative;
+  background: var(--paper);
+  padding: max(8px, env(safe-area-inset-top)) 20px
+           calc(96px + env(safe-area-inset-bottom));
+}
+
+a { color: inherit; text-decoration: none; }
+button { font-family: inherit; cursor: pointer; }
+
+/* Accessibility floor */
+:focus-visible { outline: 3px solid var(--danfo); outline-offset: 2px; border-radius: 6px; }
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}

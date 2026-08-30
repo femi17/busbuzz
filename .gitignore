@@ -10,3 +10,4 @@ build/
 .vs/
 .vercel/
 .claude/settings.local.json
+*.tsbuildinfo

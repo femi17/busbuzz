@@ -1,0 +1,128 @@
+/* Welcome / login — ported from /design/mockups/parent-onboarding.html */
+
+.wrap {
+  min-height: 100dvh;
+  display: flex;
+  flex-direction: column;
+}
+
+.hero {
+  position: relative;
+  height: 300px;
+  background: var(--asphalt);
+  overflow: hidden;
+  flex-shrink: 0;
+}
+.hero svg { position: absolute; inset: 0; width: 100%; height: 100%; }
+.cap { position: absolute; left: 26px; bottom: 22px; right: 26px; }
+.brand {
+  font-family: var(--mono);
+  font-size: 12px;
+  letter-spacing: 0.22em;
+  color: var(--danfo);
+  font-weight: 600;
+}
+.hero h1 {
+  font-family: var(--display);
+  font-size: 34px;
+  font-weight: 800;
+  color: var(--paper);
+  line-height: 1.02;
+  letter-spacing: -0.02em;
+  margin-top: 10px;
+}
+.hero h1 em { font-style: normal; color: var(--danfo); }
+
+.body {
+  padding: 26px 26px calc(30px + env(safe-area-inset-bottom));
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+}
+.lead {
+  font-size: 15px;
+  color: var(--muted);
+  line-height: 1.5;
+  font-weight: 500;
+  margin-bottom: 22px;
+}
+
+.field { margin-bottom: 14px; }
+.field label {
+  font-family: var(--mono);
+  font-size: 11px;
+  letter-spacing: 0.1em;
+  color: var(--muted);
+  font-weight: 600;
+  display: block;
+  margin-bottom: 8px;
+}
+.field input {
+  width: 100%;
+  height: 56px;
+  border-radius: 16px;
+  border: 1.5px solid var(--line);
+  background: #fff;
+  padding: 0 18px;
+  font-family: var(--body);
+  font-size: 16px;
+  font-weight: 500;
+  color: var(--asphalt);
+}
+.field input:focus {
+  outline: none;
+  border-color: var(--danfo);
+  box-shadow: 0 0 0 4px rgba(244, 176, 26, 0.16);
+}
+.cta {
+  width: 100%;
+  height: 58px;
+  border-radius: 16px;
+  background: var(--danfo);
+  border: none;
+  font-family: var(--display);
+  font-size: 17px;
+  font-weight: 700;
+  color: var(--asphalt);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  margin-top: 4px;
+}
+.fine {
+  text-align: center;
+  font-size: 12px;
+  color: var(--muted);
+  margin-top: 14px;
+  line-height: 1.5;
+}
+
+.codeInput {
+  font-family: var(--mono) !important;
+  font-size: 24px !important;
+  letter-spacing: 0.5em;
+  text-align: center;
+}
+
+.error {
+  font-size: 13px;
+  font-weight: 600;
+  color: #c0392b;
+  margin: -4px 0 12px;
+  line-height: 1.45;
+}
+
+.linkBtn {
+  background: none;
+  border: none;
+  padding: 0;
+  font: inherit;
+  font-weight: 700;
+  color: var(--asphalt);
+  text-decoration: underline;
+  cursor: pointer;
+}
+.linkBtn:disabled { opacity: 0.5; }
+
+.cta:disabled { opacity: 0.6; }

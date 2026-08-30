@@ -1,0 +1,106 @@
+/* Shared chrome for the secondary parent screens (Route / History / Alerts /
+   Child). Keeps the danfo-yellow + asphalt + paper system consistent with the
+   Track hero without each screen re-declaring the same header and card rules. */
+
+.top {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin: 6px 0 20px;
+}
+.back {
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  border: 1px solid var(--line);
+  background: var(--card);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+.back svg { width: 20px; height: 20px; }
+.titles h1 {
+  font-family: var(--display);
+  font-size: 22px;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  line-height: 1.05;
+}
+.titles .kicker {
+  font-family: var(--mono);
+  font-size: 11px;
+  letter-spacing: 0.16em;
+  color: var(--danfo-deep);
+  font-weight: 600;
+  text-transform: uppercase;
+}
+
+/* small caps section header, matches Track's .linehead h2 */
+.sectionLabel {
+  font-family: var(--mono);
+  font-size: 12px;
+  letter-spacing: 0.16em;
+  color: var(--muted);
+  font-weight: 600;
+  text-transform: uppercase;
+  margin: 22px 2px 12px;
+}
+
+.card {
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: 20px;
+  padding: 16px;
+}
+.card + .card { margin-top: 12px; }
+
+.empty {
+  text-align: center;
+  padding: 56px 24px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+.emptyIcon {
+  width: 64px;
+  height: 64px;
+  border-radius: 20px;
+  background: var(--card);
+  border: 1px solid var(--line);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--muted);
+  margin-bottom: 16px;
+}
+.emptyIcon svg { width: 30px; height: 30px; }
+.emptyTitle {
+  font-family: var(--display);
+  font-size: 18px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+}
+.emptyText {
+  color: var(--muted);
+  font-size: 14px;
+  font-weight: 500;
+  margin-top: 6px;
+  max-width: 30ch;
+  line-height: 1.45;
+}
+
+.signOut {
+  width: 100%;
+  height: 52px;
+  margin-top: 26px;
+  border-radius: 16px;
+  border: 1.5px solid var(--line);
+  background: var(--card);
+  font-family: var(--display);
+  font-size: 15px;
+  font-weight: 700;
+  color: #c0392b;
+  cursor: pointer;
+}
+.signOut:disabled { opacity: 0.6; }

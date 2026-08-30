@@ -1,0 +1,123 @@
+/* Child profile — the student the parent is tracking. */
+
+.hero {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  background: var(--asphalt);
+  color: var(--paper);
+  border-radius: 24px;
+  padding: 20px;
+  position: relative;
+  overflow: hidden;
+}
+.hero::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: repeating-linear-gradient(90deg, transparent 0 6px, rgba(255, 255, 255, 0.015) 6px 7px);
+  pointer-events: none;
+}
+.avatar {
+  width: 66px;
+  height: 66px;
+  border-radius: 20px;
+  background: linear-gradient(135deg, #f4b01a, #d9930a);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-family: var(--display);
+  font-weight: 700;
+  color: #fff;
+  font-size: 28px;
+  flex-shrink: 0;
+}
+.hero .name {
+  font-family: var(--display);
+  font-size: 22px;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+}
+.hero .klass {
+  font-family: var(--mono);
+  font-size: 12px;
+  color: var(--danfo);
+  letter-spacing: 0.08em;
+  margin-top: 4px;
+  text-transform: uppercase;
+}
+
+.row {
+  display: flex;
+  align-items: center;
+  gap: 13px;
+  padding: 13px 0;
+  border-bottom: 1px solid var(--line);
+}
+.row:last-child { border-bottom: none; }
+.rowIcon {
+  width: 36px;
+  height: 36px;
+  border-radius: 10px;
+  background: rgba(244, 176, 26, 0.14);
+  color: var(--danfo-deep);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+.rowIcon svg { width: 19px; height: 19px; }
+.rowBody { flex: 1; min-width: 0; }
+.rowLabel {
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.12em;
+  color: var(--muted);
+  text-transform: uppercase;
+}
+.rowValue { font-size: 15px; font-weight: 600; margin-top: 2px; }
+
+.medical {
+  background: rgba(232, 65, 42, 0.06);
+  border: 1px solid rgba(232, 65, 42, 0.28);
+  border-radius: 16px;
+  padding: 14px 16px;
+}
+.medical .rowLabel { color: var(--alert); }
+.medical p { font-size: 14px; margin-top: 4px; line-height: 1.4; }
+
+.guardian {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 11px 0;
+}
+.guardian + .guardian { border-top: 1px solid var(--line); }
+.gav {
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  background: rgba(26, 23, 18, 0.06);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-family: var(--display);
+  font-weight: 700;
+  font-size: 15px;
+  flex-shrink: 0;
+}
+.gbody { flex: 1; min-width: 0; }
+.gname { font-size: 15px; font-weight: 600; }
+.gmeta { font-family: var(--mono); font-size: 12px; color: var(--muted); margin-top: 1px; }
+.call {
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  background: var(--signal);
+  color: #fff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+.call svg { width: 18px; height: 18px; }

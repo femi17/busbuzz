@@ -1,0 +1,35 @@
+/* Shared bottom tab bar — used across Track / History / Alerts / Child.
+   Extracted from track.module.css so every screen shares one nav and the
+   active-tab state actually resolves (the old inline nav used a literal
+   "on" class that never matched the hashed module selector). */
+.nav {
+  position: fixed;
+  bottom: 0;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 100%;
+  max-width: 480px;
+  height: calc(78px + env(safe-area-inset-bottom));
+  padding-bottom: env(safe-area-inset-bottom);
+  background: rgba(251, 247, 239, 0.92);
+  backdrop-filter: blur(12px);
+  border-top: 1px solid var(--line);
+  display: flex;
+  justify-content: space-around;
+  align-items: center;
+  z-index: 20;
+}
+.nav a {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 5px;
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--muted);
+  font-family: var(--mono);
+  letter-spacing: 0.04em;
+}
+.nav a.on { color: var(--asphalt); }
+.ic { width: 24px; height: 24px; }
+.nav a.on .ic { color: var(--danfo-deep); }

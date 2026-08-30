@@ -1,0 +1,82 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>BusBuzz · Design System</title>
+<link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,400..800&family=Hanken+Grotesk:wght@400;500;600;700&family=Martian+Mono:wght@400;500;600&display=swap" rel="stylesheet" />
+<style>
+  :root{--asphalt:#1A1712;--paper:#FBF7EF;--danfo:#F4B01A;--signal:#1FA971;--alert:#E8412A;--muted:#8A8175;--line:#E7DECE;
+    --display:'Bricolage Grotesque',sans-serif;--body:'Hanken Grotesk',sans-serif;--mono:'Martian Mono',monospace;}
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{background:#EDE7DA;font-family:var(--body);color:var(--asphalt);padding:56px 40px 80px}
+  .wrap{max-width:1180px;margin:0 auto}
+  header .eyebrow{font-family:var(--mono);font-size:12px;letter-spacing:.22em;color:var(--danfo);font-weight:600}
+  header h1{font-family:var(--display);font-size:52px;font-weight:800;letter-spacing:-.03em;margin:12px 0 8px}
+  header p{font-size:17px;color:var(--muted);max-width:560px;line-height:1.5;font-weight:500}
+
+  .tokens{display:grid;grid-template-columns:1.2fr 1fr;gap:20px;margin:40px 0 56px}
+  .panel{background:#fff;border:1px solid var(--line);border-radius:22px;padding:24px}
+  .panel h3{font-family:var(--mono);font-size:12px;letter-spacing:.14em;color:var(--muted);margin-bottom:16px;font-weight:600}
+  .swatches{display:flex;gap:10px}
+  .sw{flex:1;text-align:center}
+  .sw .chip{height:64px;border-radius:14px;border:1px solid rgba(0,0,0,.06)}
+  .sw .nm{font-family:var(--mono);font-size:10px;margin-top:8px;font-weight:600}
+  .sw .hx{font-family:var(--mono);font-size:9px;color:var(--muted);margin-top:2px}
+  .type .d{font-family:var(--display);font-size:30px;font-weight:800;letter-spacing:-.02em}
+  .type .b{font-family:var(--body);font-size:16px;color:var(--muted);margin-top:10px;line-height:1.5}
+  .type .m{font-family:var(--mono);font-size:22px;font-weight:700;margin-top:12px;letter-spacing:-.01em}
+  .type .lbl{font-family:var(--mono);font-size:10px;letter-spacing:.1em;color:var(--danfo);font-weight:600;display:block;margin-top:4px}
+
+  .grouphead{font-family:var(--display);font-size:26px;font-weight:800;margin:12px 0 4px;letter-spacing:-.01em}
+  .groupsub{font-size:14px;color:var(--muted);margin-bottom:24px;font-weight:500}
+  .grid{display:flex;flex-wrap:wrap;gap:34px;margin-bottom:64px}
+  .frame{width:390px}
+  .frame .cap{font-family:var(--mono);font-size:11px;letter-spacing:.08em;color:var(--muted);font-weight:600;margin-bottom:12px;display:flex;align-items:center;gap:8px}
+  .frame .cap b{color:var(--asphalt);font-weight:700}
+  .frame iframe{width:390px;height:844px;border:none;border-radius:44px;box-shadow:0 30px 60px -20px rgba(26,23,18,.32);background:#fff}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <div class="eyebrow">BUSBUZZ · MOBILE DESIGN</div>
+    <h1>The school run,<br>drawn as a line.</h1>
+    <p>One brand, two contexts. The parent PWA is daylight and peace-of-mind; the driver app is a dark instrument cluster built for windshield glare. Everything speaks the language of Lagos bus stops.</p>
+  </header>
+
+  <div class="tokens">
+    <div class="panel">
+      <h3>PALETTE</h3>
+      <div class="swatches">
+        <div class="sw"><div class="chip" style="background:#1A1712"></div><div class="nm">ASPHALT</div><div class="hx">#1A1712</div></div>
+        <div class="sw"><div class="chip" style="background:#FBF7EF"></div><div class="nm">PAPER</div><div class="hx">#FBF7EF</div></div>
+        <div class="sw"><div class="chip" style="background:#F4B01A"></div><div class="nm">DANFO</div><div class="hx">#F4B01A</div></div>
+        <div class="sw"><div class="chip" style="background:#1FA971"></div><div class="nm">SIGNAL</div><div class="hx">#1FA971</div></div>
+        <div class="sw"><div class="chip" style="background:#E8412A"></div><div class="nm">ALERT</div><div class="hx">#E8412A</div></div>
+      </div>
+    </div>
+    <div class="panel type">
+      <h3>TYPE</h3>
+      <div class="d">Bricolage Grotesque<span class="lbl">DISPLAY — HEADLINES</span></div>
+      <div class="b">Hanken Grotesk — the body face, legible on cheap screens and in sun.<span class="lbl" style="display:inline">BODY</span></div>
+      <div class="m">04:12 · 32 km/h · ETA 8:26<span class="lbl">MARTIAN MONO — TIME & DATA</span></div>
+    </div>
+  </div>
+
+  <div class="grouphead">Parent PWA</div>
+  <div class="groupsub">Next.js · installs to home screen · Mapbox GL JS live map</div>
+  <div class="grid">
+    <div class="frame"><div class="cap"><b>01</b> · TRACK — the live hero</div><iframe src="parent-track.html"></iframe></div>
+    <div class="frame"><div class="cap"><b>02</b> · WELCOME &amp; ADD-TO-HOME</div><iframe src="parent-onboarding.html"></iframe></div>
+  </div>
+
+  <div class="grouphead">Driver App</div>
+  <div class="groupsub">Native Android · kiosk mode · high-contrast for glare</div>
+  <div class="grid">
+    <div class="frame"><div class="cap"><b>01</b> · START TRIP</div><iframe src="driver-today.html"></iframe></div>
+    <div class="frame"><div class="cap"><b>02</b> · ATTENDANCE — stamp cards</div><iframe src="driver-attendance.html"></iframe></div>
+  </div>
+</div>
+</body>
+</html>

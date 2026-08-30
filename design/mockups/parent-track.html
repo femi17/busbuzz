@@ -1,0 +1,140 @@
+<!DOCTYPE html>
+<!-- @dsCard group="Parent PWA" -->
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Parent PWA · Track</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,400..800&family=Hanken+Grotesk:wght@400;500;600;700&family=Martian+Mono:wght@400;500;600;700&display=swap" rel="stylesheet" />
+<style>
+  :root{
+    --asphalt:#1A1712; --paper:#FBF7EF; --danfo:#F4B01A; --danfo-deep:#D9930A;
+    --signal:#1FA971; --alert:#E8412A; --ink:#1A1712; --muted:#8A8175;
+    --line:#E7DECE; --card:#FFFFFF;
+    --display:'Bricolage Grotesque',sans-serif; --body:'Hanken Grotesk',sans-serif; --mono:'Martian Mono',monospace;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{background:#EDE7DA;font-family:var(--body);display:flex;justify-content:center;align-items:flex-start;padding:32px 16px;min-height:100vh;-webkit-font-smoothing:antialiased}
+  .phone{width:390px;min-height:844px;background:var(--paper);border-radius:44px;overflow:hidden;position:relative;box-shadow:0 40px 80px -20px rgba(26,23,18,.35);border:1px solid rgba(26,23,18,.06)}
+  .status{height:52px;display:flex;align-items:center;justify-content:space-between;padding:0 28px;font-family:var(--mono);font-size:12px;color:var(--ink);font-weight:600}
+  .screen{padding:8px 20px 96px}
+
+  /* greeting */
+  .greet{display:flex;align-items:center;justify-content:space-between;margin:6px 0 18px}
+  .greet h1{font-family:var(--display);font-size:24px;font-weight:700;letter-spacing:-.02em;line-height:1.05}
+  .greet .sub{color:var(--muted);font-size:13px;margin-top:2px;font-weight:500}
+  .avatar{width:44px;height:44px;border-radius:50%;background:linear-gradient(135deg,#F4B01A,#D9930A);display:flex;align-items:center;justify-content:center;font-family:var(--display);font-weight:700;color:#fff;font-size:17px;flex-shrink:0}
+
+  /* countdown board */
+  .board{background:var(--asphalt);border-radius:24px;padding:22px 22px 20px;color:var(--paper);position:relative;overflow:hidden}
+  .board::after{content:"";position:absolute;inset:0;background:repeating-linear-gradient(90deg,transparent 0 6px,rgba(255,255,255,.015) 6px 7px);pointer-events:none}
+  .board .eyebrow{font-family:var(--mono);font-size:11px;letter-spacing:.18em;color:var(--danfo);font-weight:600;display:flex;align-items:center;gap:8px}
+  .livedot{width:7px;height:7px;border-radius:50%;background:var(--signal);box-shadow:0 0 0 0 rgba(31,169,113,.6);animation:pulse 2s infinite}
+  @keyframes pulse{0%{box-shadow:0 0 0 0 rgba(31,169,113,.5)}70%{box-shadow:0 0 0 8px rgba(31,169,113,0)}100%{box-shadow:0 0 0 0 rgba(31,169,113,0)}}
+  .board .time{font-family:var(--mono);font-size:56px;font-weight:700;letter-spacing:-.02em;line-height:1;margin:12px 0 4px;display:flex;align-items:baseline;gap:10px}
+  .board .time small{font-size:16px;font-weight:500;color:var(--muted);letter-spacing:0}
+  .board .where{font-size:14px;color:#CFC7B8;font-weight:500}
+  .board .where b{color:var(--paper);font-weight:600}
+
+  /* map */
+  .map{margin-top:16px;border-radius:24px;overflow:hidden;height:240px;position:relative;background:#EDE7D7;border:1px solid var(--line)}
+  .map svg{position:absolute;inset:0;width:100%;height:100%}
+  .maptag{position:absolute;left:14px;bottom:14px;background:rgba(26,23,18,.82);color:var(--paper);font-family:var(--mono);font-size:11px;font-weight:500;padding:7px 11px;border-radius:10px;display:flex;align-items:center;gap:7px;backdrop-filter:blur(4px)}
+  .speed{position:absolute;right:14px;top:14px;background:var(--paper);border:1px solid var(--line);font-family:var(--mono);font-size:12px;font-weight:600;padding:6px 10px;border-radius:10px;color:var(--ink)}
+
+  /* the line */
+  .linehead{display:flex;align-items:center;justify-content:space-between;margin:24px 2px 12px}
+  .linehead h2{font-family:var(--mono);font-size:12px;letter-spacing:.16em;color:var(--muted);font-weight:600}
+  .linehead a{font-size:13px;color:var(--danfo-deep);font-weight:600;text-decoration:none}
+  .spine{position:relative;padding-left:6px}
+  .stop{display:flex;align-items:center;gap:16px;position:relative;padding:9px 0}
+  .rail{position:absolute;left:9px;top:0;bottom:0;width:3px;background:var(--line);border-radius:3px}
+  .rail .done{position:absolute;top:0;left:0;width:100%;background:var(--danfo);border-radius:3px;height:42%}
+  .node{width:20px;height:20px;border-radius:50%;background:var(--paper);border:3px solid var(--line);z-index:2;flex-shrink:0}
+  .stop.done .node{background:var(--danfo);border-color:var(--danfo)}
+  .stop.bus{padding:4px 0}
+  .bus .node{width:34px;height:34px;background:var(--danfo);border:none;display:flex;align-items:center;justify-content:center;box-shadow:0 0 0 6px rgba(244,176,26,.22),0 6px 14px -4px rgba(217,147,10,.6);margin-left:-7px}
+  .stop.mine .node{border-color:var(--asphalt);background:var(--paper)}
+  .stop .txt{display:flex;flex-direction:column}
+  .stop .name{font-size:15px;font-weight:600;color:var(--ink)}
+  .stop.done .name,.stop .name.dim{color:var(--muted);font-weight:500}
+  .stop .meta{font-size:12px;color:var(--muted);font-family:var(--mono);margin-top:1px}
+  .tag{margin-left:auto;font-size:11px;font-family:var(--mono);font-weight:600;padding:4px 9px;border-radius:20px}
+  .tag.done{color:var(--signal);background:rgba(31,169,113,.1)}
+  .tag.mine{color:var(--asphalt);background:var(--danfo)}
+  .tag.now{color:var(--danfo-deep);background:rgba(244,176,26,.14)}
+
+  /* bottom nav */
+  .nav{position:absolute;bottom:0;left:0;right:0;height:78px;background:rgba(251,247,239,.92);backdrop-filter:blur(12px);border-top:1px solid var(--line);display:flex;justify-content:space-around;align-items:center;padding-bottom:12px}
+  .nav a{display:flex;flex-direction:column;align-items:center;gap:5px;font-size:10px;font-weight:600;color:var(--muted);text-decoration:none;font-family:var(--mono);letter-spacing:.04em}
+  .nav a.on{color:var(--asphalt)}
+  .nav .ic{width:24px;height:24px}
+  .nav a.on .ic{color:var(--danfo-deep)}
+</style>
+</head>
+<body>
+  <div class="phone">
+    <div class="status"><span>8:14</span><span>BusBuzz</span><span>5G ▪ 84%</span></div>
+    <div class="screen">
+      <div class="greet">
+        <div>
+          <h1>Good morning, Ada</h1>
+          <div class="sub">Chidi's bus is on the way</div>
+        </div>
+        <div class="avatar">A</div>
+      </div>
+
+      <div class="board">
+        <div class="eyebrow"><span class="livedot"></span>ARRIVES IN</div>
+        <div class="time">04:12<small>min</small></div>
+        <div class="where">at <b>Lekki Phase 1 Gate</b> · Chidi's stop</div>
+      </div>
+
+      <div class="map">
+        <svg viewBox="0 0 390 240" preserveAspectRatio="xMidYMid slice">
+          <rect width="390" height="240" fill="#EDE7D7"/>
+          <g stroke="#DDD3BE" stroke-width="7" fill="none" stroke-linecap="round">
+            <path d="M-10 60 H400"/><path d="M-10 150 H400"/><path d="M70 -10 V250"/><path d="M260 -10 V250"/>
+          </g>
+          <g stroke="#CFC4AC" stroke-width="3" fill="none">
+            <path d="M-10 105 H400"/><path d="M160 -10 V250"/>
+          </g>
+          <path d="M40 30 C 120 60, 90 130, 180 140 S 300 200, 350 210" fill="none" stroke="#1A1712" stroke-width="5" stroke-linecap="round" stroke-dasharray="1 12"/>
+          <path d="M40 30 C 120 60, 90 130, 155 138" fill="none" stroke="#F4B01A" stroke-width="6" stroke-linecap="round"/>
+          <circle cx="40" cy="30" r="6" fill="#1A1712"/>
+          <circle cx="350" cy="210" r="7" fill="#fff" stroke="#1A1712" stroke-width="4"/>
+          <g transform="translate(155,138)">
+            <circle r="17" fill="#F4B01A" opacity=".25"/>
+            <circle r="11" fill="#F4B01A" stroke="#fff" stroke-width="3"/>
+            <rect x="-5" y="-4" width="10" height="8" rx="1.5" fill="#1A1712"/>
+          </g>
+        </svg>
+        <div class="speed">32 km/h</div>
+        <div class="maptag"><span class="livedot"></span>LIVE · updated 3s ago</div>
+      </div>
+
+      <div class="linehead">
+        <h2>THE LINE · ROUTE 3 MORNING</h2>
+        <a href="#">All stops</a>
+      </div>
+      <div class="spine">
+        <div class="rail"><div class="done"></div></div>
+        <div class="stop done"><div class="node"></div><div class="txt"><span class="name">School Gate</span><span class="meta">DEPARTED 7:58</span></div><span class="tag done">done</span></div>
+        <div class="stop done"><div class="node"></div><div class="txt"><span class="name">Admiralty Way</span><span class="meta">7 boarded</span></div><span class="tag done">done</span></div>
+        <div class="stop bus"><div class="node"><svg width="16" height="16" viewBox="0 0 24 24" fill="none"><rect x="3" y="6" width="18" height="11" rx="2" fill="#1A1712"/><rect x="5" y="8" width="5" height="4" fill="#F4B01A"/><rect x="14" y="8" width="5" height="4" fill="#F4B01A"/><circle cx="8" cy="18" r="2" fill="#1A1712"/><circle cx="16" cy="18" r="2" fill="#1A1712"/></svg></div><div class="txt"><span class="name">Between stops</span><span class="meta">2.1 km to next</span></div><span class="tag now">bus here</span></div>
+        <div class="stop mine"><div class="node"></div><div class="txt"><span class="name">Lekki Phase 1 Gate</span><span class="meta">CHIDI OKAFOR · JSS1</span></div><span class="tag mine">your stop</span></div>
+        <div class="stop"><div class="node"></div><div class="txt"><span class="name dim">Chevron Drive</span><span class="meta">ETA 8:26</span></div></div>
+      </div>
+    </div>
+
+    <div class="nav">
+      <a class="on" href="#"><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 20l-5.4 1.4a1 1 0 01-1.2-1.3l2.4-8A1 1 0 016 11h12a1 1 0 011 1l2.4 8a1 1 0 01-1.2 1.3L15 20"/><path d="M9 20V9a3 3 0 013-3v0a3 3 0 013 3v11"/></svg>Track</a>
+      <a href="#"><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 8v4l3 2"/><circle cx="12" cy="12" r="9"/></svg>History</a>
+      <a href="#"><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 8a6 6 0 00-12 0c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.7 21a2 2 0 01-3.4 0"/></svg>Alerts</a>
+      <a href="#"><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="8" r="4"/><path d="M4 21c0-4 4-6 8-6s8 2 8 6"/></svg>Chidi</a>
+    </div>
+  </div>
+</body>
+</html>
