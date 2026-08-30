@@ -1,4 +1,5 @@
 import { createClient } from 'npm:@supabase/supabase-js@2';
+import * as webpush from 'jsr:@negrel/webpush@0.5.0';
 
 // Validation inlined — no cross-directory import, so the deploy bundler only
 // needs this file.
@@ -31,6 +32,13 @@ function timingSafeEqual(a: string, b: string): boolean {
 const EXPO_BATCH_SIZE = 100;
 
 type PushTokenRow = { id: string; profile_id: string; expo_push_token: string };
+type WebPushSubRow = {
+  id: string;
+  profile_id: string;
+  endpoint: string;
+  p256dh: string;
+  auth: string;
+};
 type ExpoTicket = {
   status: 'ok' | 'error';
   id?: string;
@@ -89,6 +97,94 @@ function chunk<T>(arr: T[], size: number): T[][] {
   return out;
 }
 
+// ── Web Push (parent PWA) ──────────────────────────────────────────────
+// Browsers subscribed via the PWA get the same notification through the
+// Web Push protocol (VAPID + aes128gcm). Runs alongside Expo delivery —
+// a parent may have both the PWA and a native install; each device row
+// gets its own delivery. Skipped entirely when the VAPID_KEYS secret is
+// missing so Expo delivery never depends on the PWA setup.
+async function sendWebPush(
+  supabase: ReturnType<typeof createClient>,
+  validated: SendPushBody,
+): Promise<{ sent: number; failed: number }> {
+  const vapidKeysJson = Deno.env.get('VAPID_KEYS');
+  if (!vapidKeysJson) return { sent: 0, failed: 0 };
+
+  const { data: subRows, error: subError } = await supabase
+    .from('web_push_subscriptions')
+    .select('id, profile_id, endpoint, p256dh, auth')
+    .in('profile_id', validated.userIds);
+
+  if (subError) {
+    console.error('[send-push] Failed to load web push subscriptions:', subError);
+    return { sent: 0, failed: 0 };
+  }
+  const subs = (subRows ?? []) as WebPushSubRow[];
+  if (subs.length === 0) return { sent: 0, failed: 0 };
+
+  const vapidKeys = await webpush.importVapidKeys(JSON.parse(vapidKeysJson), {
+    extractable: false,
+  });
+  const appServer = await webpush.ApplicationServer.new({
+    contactInformation: Deno.env.get('WEB_PUSH_CONTACT') ?? 'mailto:hello@busbuzz.com.ng',
+    vapidKeys,
+  });
+
+  // The PWA's sw.js reads { title, body, tag, url, data }. SOS/arrival
+  // alerts land on the Track screen; everything else opens Alerts.
+  const dataType = (validated.data?.type as string | undefined) ?? '';
+  const payload = JSON.stringify({
+    title: validated.title,
+    body: validated.body,
+    tag: dataType || validated.channelId || 'trip-updates',
+    url: dataType === 'sos' || dataType === 'trip-started' ? '/' : '/alerts',
+    data: validated.data ?? {},
+  });
+  const urgency =
+    validated.channelId === 'arrival-alarm' ? webpush.Urgency.High : webpush.Urgency.Normal;
+
+  let sent = 0;
+  let failed = 0;
+  const goneIds: string[] = [];
+
+  await Promise.all(
+    subs.map(async (sub) => {
+      try {
+        const subscriber = appServer.subscribe({
+          endpoint: sub.endpoint,
+          keys: { p256dh: sub.p256dh, auth: sub.auth },
+        });
+        await subscriber.pushTextMessage(payload, { urgency });
+        sent += 1;
+      } catch (err) {
+        failed += 1;
+        // 404/410 mean the browser dropped the subscription — prune it so
+        // we stop paying for dead sends (mirrors Expo's DeviceNotRegistered).
+        if (
+          err instanceof webpush.PushMessageError &&
+          (err.isGone() || err.response.status === 404)
+        ) {
+          goneIds.push(sub.id);
+        } else {
+          console.error(`[send-push] web push to ${sub.id} failed:`, err);
+        }
+      }
+    }),
+  );
+
+  if (goneIds.length > 0) {
+    const { error: pruneError } = await supabase
+      .from('web_push_subscriptions')
+      .delete()
+      .in('id', goneIds);
+    if (pruneError) {
+      console.error('[send-push] Failed to prune dead web subscriptions:', pruneError);
+    }
+  }
+
+  return { sent, failed };
+}
+
 Deno.serve(async (req: Request) => {
   if (req.method === 'OPTIONS') {
     return new Response(null, { status: 204, headers: corsHeaders });
@@ -140,6 +236,14 @@ Deno.serve(async (req: Request) => {
     console.error('[send-push] Unexpected error persisting notifications:', err);
   }
 
+  // Web Push (PWA browsers) runs concurrently with Expo delivery below —
+  // and must complete even when a recipient has no native tokens at all,
+  // which is the norm now that parents use the PWA.
+  const webPushPromise = sendWebPush(supabase, validated).catch((err) => {
+    console.error('[send-push] web push delivery crashed:', err);
+    return { sent: 0, failed: 0 };
+  });
+
   // push_tokens holds one row per device/install (a profile can have
   // several), replacing the old single profiles.expo_push_token column that
   // let a second device silently steal delivery from the first.
@@ -150,7 +254,11 @@ Deno.serve(async (req: Request) => {
 
   if (tokenRowsError) {
     console.error('[send-push] Failed to load push tokens:', tokenRowsError);
-    return jsonResponse({ data: { sent: 0, failed: 0 }, message: 'Notifications sent' }, 200);
+    const web = await webPushPromise;
+    return jsonResponse(
+      { data: { sent: web.sent, failed: web.failed, web }, message: 'Notifications sent' },
+      200,
+    );
   }
 
   const validTokens: PushTokenRow[] = ((tokenRows ?? []) as PushTokenRow[]).filter(
@@ -158,7 +266,11 @@ Deno.serve(async (req: Request) => {
   );
 
   if (validTokens.length === 0) {
-    return jsonResponse({ data: { sent: 0, failed: 0 }, message: 'Notifications sent' }, 200);
+    const web = await webPushPromise;
+    return jsonResponse(
+      { data: { sent: web.sent, failed: web.failed, web }, message: 'Notifications sent' },
+      200,
+    );
   }
 
   let sent = 0;
@@ -247,5 +359,9 @@ Deno.serve(async (req: Request) => {
     }
   }
 
-  return jsonResponse({ data: { sent, failed }, message: 'Notifications sent' }, 200);
+  const web = await webPushPromise;
+  return jsonResponse(
+    { data: { sent: sent + web.sent, failed: failed + web.failed, web }, message: 'Notifications sent' },
+    200,
+  );
 });

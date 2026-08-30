@@ -6,6 +6,7 @@ import styles from "../track.module.css";
 import CountdownBoard from "./CountdownBoard";
 import LiveMap from "./LiveMap";
 import BottomNav from "./BottomNav";
+import PushToggle from "./PushToggle";
 import { createClient } from "@/lib/supabase/client";
 import { estimateETA, haversineDistance } from "@/lib/geo";
 import {
@@ -404,6 +405,8 @@ export default function TrackLive({
         </div>
         <ChildAvatar student={student} students={students} />
       </header>
+
+      <PushToggle />
 
       {trip?.hasSos && (
         <div className={styles.recap}>
