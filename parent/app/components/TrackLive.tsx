@@ -7,6 +7,8 @@ import CountdownBoard from "./CountdownBoard";
 import LiveMap from "./LiveMap";
 import BottomNav from "./BottomNav";
 import PushToggle from "./PushToggle";
+import AbsenceToggle from "./AbsenceToggle";
+import PickupEditor from "./PickupEditor";
 import { createClient } from "@/lib/supabase/client";
 import { estimateETA, haversineDistance } from "@/lib/geo";
 import {
@@ -593,6 +595,18 @@ function IdleView({
 }) {
   const hasBus = !!bundle?.plateNumber || !!student.routeId;
 
+  // Where the draggable pickup pin starts: the saved spot, else the
+  // assigned stop, else the school — so there's always a real pin to drag
+  // rather than nothing until an admin sets one up (same chain as native).
+  const pickupInitial: [number, number] | null =
+    student.pickupLat != null && student.pickupLng != null
+      ? [student.pickupLng, student.pickupLat]
+      : bundle?.assignedStop
+        ? [bundle.assignedStop.longitude, bundle.assignedStop.latitude]
+        : student.schoolLat != null && student.schoolLng != null
+          ? [student.schoolLng, student.schoolLat]
+          : null;
+
   // Which run comes next: the morning one until it's done, then the
   // afternoon one; after both, tomorrow morning.
   const nextRun = !idle
@@ -671,6 +685,8 @@ function IdleView({
             </div>
           </div>
         )}
+
+        {hasBus && <AbsenceToggle studentId={student.id} firstName={firstName} />}
       </section>
 
       {hasBus && idle && (
@@ -694,6 +710,19 @@ function IdleView({
               next={idle.morningDone && !idle.afternoonDone}
             />
           </div>
+        </>
+      )}
+
+      {hasBus && pickupInitial && (
+        <>
+          <div className={styles.linehead}>
+            <h2>PICKUP SPOT</h2>
+          </div>
+          <PickupEditor
+            studentId={student.id}
+            initial={pickupInitial}
+            hasSaved={student.pickupLat != null && student.pickupLng != null}
+          />
         </>
       )}
     </>

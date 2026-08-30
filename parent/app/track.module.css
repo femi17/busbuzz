@@ -365,3 +365,104 @@
   cursor: pointer;
 }
 .pushBtn:disabled { opacity: 0.6; }
+
+/* "Not going today" absence toggle — idle Track only */
+.absence {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  padding: 12px 14px;
+  margin-top: 14px;
+}
+.absenceOn {
+  background: rgba(232, 65, 42, 0.06);
+  border-color: rgba(232, 65, 42, 0.3);
+}
+.absenceConfirm { flex-direction: column; align-items: stretch; }
+.absenceText {
+  flex: 1;
+  font-size: 13px;
+  color: var(--muted);
+  line-height: 1.45;
+}
+.absenceText b { color: var(--asphalt); }
+.absenceActions {
+  display: flex;
+  gap: 10px;
+  justify-content: flex-end;
+}
+.absenceGhost,
+.absencePrimary,
+.absenceDanger {
+  height: 36px;
+  padding: 0 14px;
+  border-radius: 12px;
+  font-family: var(--display);
+  font-weight: 700;
+  font-size: 13px;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+.absenceGhost {
+  background: none;
+  border: 1.5px solid var(--line);
+  color: var(--asphalt);
+}
+.absencePrimary {
+  background: var(--danfo);
+  border: none;
+  color: var(--asphalt);
+}
+.absenceDanger {
+  background: #e8412a;
+  border: none;
+  color: #fff;
+}
+.absenceGhost:disabled,
+.absencePrimary:disabled,
+.absenceDanger:disabled { opacity: 0.6; }
+
+/* Pickup spot editor — small draggable-pin map on idle Track */
+.pickup {
+  border: 1px solid var(--line);
+  border-radius: 20px;
+  overflow: hidden;
+  background: var(--card);
+}
+.pickupMap {
+  position: relative;
+  height: 200px;
+}
+.pickupPin {
+  width: 30px;
+  height: 30px;
+  border-radius: 50% 50% 50% 4px;
+  transform: rotate(-45deg);
+  background: var(--danfo);
+  border: 3px solid #fff;
+  box-shadow: 0 3px 8px rgba(26, 23, 18, 0.35);
+  cursor: grab;
+}
+.pickupBar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 11px 14px;
+  border-top: 1px solid var(--line);
+  min-height: 58px;
+}
+.pickupHint {
+  flex: 1;
+  font-size: 13px;
+  color: var(--muted);
+  line-height: 1.4;
+}
+.pickupSaved {
+  flex: 1;
+  font-size: 13px;
+  font-weight: 700;
+  color: #1fa971;
+}
