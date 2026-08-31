@@ -75,43 +75,41 @@ async function authenticateSuperAdmin(
 // Lagos-biased geocode, shared by school creation and address edits.
 // Best-effort: a failed/absent lookup never blocks the write, it just
 // leaves latitude/longitude unset (create) or unchanged (edit).
+// Mapbox (not Google): the pk. token is public by design — it already
+// ships inside the mobile apps and eas.json — so no per-project secret
+// is needed. MAPBOX_TOKEN env overrides the baked-in default if set.
+const MAPBOX_TOKEN =
+  Deno.env.get('MAPBOX_TOKEN') ??
+  'pk.eyJ1Ijoib2R1b2xhZmVtaSIsImEiOiJjbXB2MzNsNjIwbWs3MnFzZmw3cnVnbzRqIn0.tYTtzTVfJJQZsKsE_aLUWA';
+
 async function geocodeSchoolAddress(
   address: string,
 ): Promise<{ lat: number; lng: number } | null> {
-  const googleMapsApiKey = Deno.env.get('GOOGLE_MAPS_API_KEY');
-  if (!googleMapsApiKey) return null;
   try {
     const geocodeUrl =
-      // Lagos State bounding box (approx, south,west|north,east) — BusBuzz only
-      // serves Lagos schools, so bias results here rather than resolving ambiguous
-      // place names (e.g. "Ejigbo") to same-named locations elsewhere in Nigeria.
-      `https://maps.googleapis.com/maps/api/geocode/json?address=${encodeURIComponent(address)}&region=ng&bounds=6.35,2.7|6.70,4.33&key=${googleMapsApiKey}`;
+      // bbox is minLng,minLat,maxLng,maxLat — Lagos State (approx). BusBuzz
+      // only serves Lagos schools, so bias results here rather than resolving
+      // ambiguous place names (e.g. "Ejigbo") elsewhere in Nigeria.
+      `https://api.mapbox.com/geocoding/v5/mapbox.places/${encodeURIComponent(address)}.json` +
+      `?access_token=${MAPBOX_TOKEN}&country=ng&bbox=2.7,6.35,4.33,6.70&proximity=3.3792,6.5244&limit=1`;
     const geocodeRes = await fetch(geocodeUrl);
     if (!geocodeRes.ok) {
       console.warn(
-        `Google geocoding returned non-OK status ${geocodeRes.status} for address: ${address}`,
+        `Mapbox geocoding returned non-OK status ${geocodeRes.status} for address: ${address}`,
       );
       return null;
     }
     const geocodeJson = await geocodeRes.json() as {
-      status: string;
-      results?: Array<{
-        geometry: { location: { lat: number; lng: number } };
-      }>;
+      features?: Array<{ center: [number, number] }>;
     };
-    const result = geocodeJson.results?.[0];
-    if (geocodeJson.status === 'OK' && result?.geometry?.location) {
-      return { lat: result.geometry.location.lat, lng: result.geometry.location.lng };
-    }
-    if (geocodeJson.status !== 'ZERO_RESULTS') {
-      console.warn(
-        `Google geocoding returned status ${geocodeJson.status} for address: ${address}`,
-      );
+    const center = geocodeJson.features?.[0]?.center;
+    if (center && center.length === 2) {
+      return { lat: center[1], lng: center[0] };
     }
     return null;
   } catch (geocodeErr) {
     console.warn(
-      `Google geocoding failed for address "${address}":`,
+      `Mapbox geocoding failed for address "${address}":`,
       (geocodeErr as Error).message,
     );
     return null;

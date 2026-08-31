@@ -30,8 +30,10 @@ check-push-receipts.
 
 Secrets: `VAPID_KEYS` + `WEB_PUSH_CONTACT` live in the service-role-only
 `app_secrets` table (per project — dev and prod have different VAPID
-pairs). `INTERNAL_FUNCTION_SECRET`, `GOOGLE_MAPS_API_KEY`,
-`RESEND_API_KEY` are dashboard Edge Function secrets, set per project.
+pairs). `INTERNAL_FUNCTION_SECRET` and `RESEND_API_KEY` are dashboard
+Edge Function secrets, set per project. Geocoding uses Mapbox with the
+public pk. token baked into manage-school/manage-student — no Google
+server key.
 
 ## 3. Web Admin (Next.js)
 

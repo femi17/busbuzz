@@ -99,7 +99,11 @@ EXPO_PUBLIC_GEOFENCE_RADIUS_M=300   # Metres from stop to trigger approach alert
 SUPABASE_URL=                       # Auto-injected by Supabase in Edge Functions
 SUPABASE_SERVICE_ROLE_KEY=          # Auto-injected by Supabase in Edge Functions
 EXPO_PUSH_URL=https://exp.host/--/api/v2/push/send
-GOOGLE_MAPS_API_KEY=                # Server-side Google Geocoding API key (school address -> coordinates). Use a separate, IP-restricted key from NEXT_PUBLIC_GOOGLEMAP_TOKEN.
+INTERNAL_FUNCTION_SECRET=           # Shared secret for function-to-function calls (send-push)
+# Server-side geocoding (school addresses, student pickup addresses) uses the
+# Mapbox Geocoding API with the public pk. token baked into the functions
+# (MAPBOX_TOKEN env overrides it) — no Google server key needed. The web
+# dashboard's map still uses NEXT_PUBLIC_GOOGLEMAP_TOKEN client-side.
 ```
 
 ---
