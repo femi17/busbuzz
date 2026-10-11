@@ -8,10 +8,12 @@
 
 .hero {
   position: relative;
-  height: 300px;
+  /* Grow to absorb spare vertical space instead of leaving dead space under
+     the form — the branded hero fills the gap on tall screens. */
+  min-height: 300px;
+  flex: 1;
   background: var(--asphalt);
   overflow: hidden;
-  flex-shrink: 0;
 }
 .hero svg { position: absolute; inset: 0; width: 100%; height: 100%; }
 .cap { position: absolute; left: 26px; bottom: 22px; right: 26px; }
@@ -35,7 +37,7 @@
 
 .body {
   padding: 26px 26px calc(30px + env(safe-area-inset-bottom));
-  flex: 1;
+  flex: 0 0 auto;
   display: flex;
   flex-direction: column;
 }

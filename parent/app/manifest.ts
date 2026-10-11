@@ -9,7 +9,10 @@ export default function manifest(): MetadataRoute.Manifest {
     scope: "/",
     display: "standalone",
     orientation: "portrait",
-    background_color: "#FBF7EF",
+    // Dark splash so the icon's own dark rounded-square tile merges into the
+    // background — the launch screen then shows just the yellow bus + route
+    // "floating", with no visible box behind the logo. Matches theme_color.
+    background_color: "#1A1712",
     theme_color: "#1A1712",
     categories: ["education", "navigation", "travel"],
     icons: [
