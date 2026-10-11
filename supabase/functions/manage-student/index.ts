@@ -733,13 +733,21 @@ async function handleInviteParent(
   let parentId: string;
   let isNewUser: boolean;
 
-  const inviteResult = await serviceSupabase.auth.admin.inviteUserByEmail(
-    parentEmail,
-    { data: { name: parentName ?? parentEmail } },
-  );
+  // Parents are created already-confirmed (not invited). The parent app is a
+  // code-login PWA, so an invite / email-confirmation LINK is useless — it
+  // opens in a browser tab, not the installed app — and, worse, leaves the
+  // account unconfirmed, which makes signInWithOtp send a "Confirm signup"
+  // link instead of the 6-digit login code. A confirmed account takes the
+  // Magic Link / OTP code path straight away. No email is sent here; the
+  // parent just opens the app and signs in with their email.
+  const createResult = await serviceSupabase.auth.admin.createUser({
+    email: parentEmail,
+    email_confirm: true,
+    user_metadata: { name: parentName ?? parentEmail },
+  });
 
-  if (inviteResult.error) {
-    const message = inviteResult.error.message ?? '';
+  if (createResult.error) {
+    const message = createResult.error.message ?? '';
     if (message.includes('already been registered')) {
       const linkResult = await serviceSupabase.auth.admin.generateLink({
         type: 'magiclink',
@@ -770,13 +778,13 @@ async function handleInviteParent(
       );
     }
   } else {
-    if (!inviteResult.data.user) {
+    if (!createResult.data.user) {
       return jsonResponse(
         { error: 'Failed to invite parent', statusCode: 500 },
         500,
       );
     }
-    parentId = inviteResult.data.user.id;
+    parentId = createResult.data.user.id;
     isNewUser = true;
   }
 
