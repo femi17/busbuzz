@@ -2,23 +2,22 @@
 
 ## Environments
 
-| | busbuzz-dev | busbuzz-prod |
-|---|---|---|
-| Supabase ref | `nmgvnoudmxrzqthnfxkk` | `cjjsjmelyfbpcnqfkgbc` |
-| Serves | local dev, Vercel previews, EAS `preview`/`driver` profiles | busbuzz.com.ng, app.busbuzz.com.ng, EAS `production*`/`driver-prod` profiles |
+As of 2026-10-11 BusBuzz runs on a **single Supabase project** — `busbuzz-dev`
+(`nmgvnoudmxrzqthnfxkk`). It serves everything: local dev, Vercel previews
+*and* production (busbuzz.com.ng, app.busbuzz.com.ng, admin.busbuzz.com.ng),
+and every EAS profile (`preview`/`driver` and `production*`/`driver-prod` —
+the prod profiles now point at dev too).
 
-busbuzz-prod was bootstrapped 2026-08-30 from the migration files (applied
-as batches `b01`–`b08` via the Supabase MCP; `b08` is
-`20260830140000_capture_dev_drift.sql`, which records everything that had
-been created directly on dev). The `check-push-receipts` pg_cron job on
-each project calls that project's own functions URL.
+The old `busbuzz-prod` project (`cjjsjmelyfbpcnqfkgbc`) was retired — all
+Vercel env vars and `eas.json` were repointed to dev. The prod project is to
+be deleted from the Supabase dashboard (not done via tooling). Do **not**
+create a new prod project or move traffic back to one.
 
 ## 1. Database Migrations
 
 Migrations are applied via the Supabase MCP (`apply_migration`) or the
-dashboard SQL Editor (no local Supabase instance). Apply to dev first;
-apply to prod (`cjjsjmelyfbpcnqfkgbc`) when releasing. If a migration
-hardcodes a project URL (cron jobs), substitute the target project's.
+dashboard SQL Editor (no local Supabase instance). There is one project
+now (`nmgvnoudmxrzqthnfxkk`), so apply there — no separate prod release step.
 
 ## 2. Edge Functions
 

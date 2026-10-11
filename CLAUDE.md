@@ -484,9 +484,12 @@ export interface ApiResponse<T> {
 This project uses Supabase cloud directly. There is no local Supabase instance.
 Never run `supabase start` — it requires Docker and is not part of this workflow.
 
-### Two Supabase projects (create both as free projects)
-- `busbuzz-dev` — used during development. Safe to break.
-- `busbuzz-prod` — used for live schools. Never touch during development.
+### One Supabase project (consolidated 2026-10-11)
+- `busbuzz-dev` (`nmgvnoudmxrzqthnfxkk`) is the ONLY project. It serves local
+  dev, Vercel previews, and production (app/admin.busbuzz.com.ng + all EAS
+  profiles). There is no longer a separate prod database.
+- The old `busbuzz-prod` (`cjjsjmelyfbpcnqfkgbc`) was retired and is being
+  deleted. Do not recreate a prod project or point anything back at one.
 
 ### Prerequisites
 ```bash
