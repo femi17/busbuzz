@@ -1,5 +1,6 @@
 <svg width="512" height="512" viewBox="0 0 512 512" xmlns="http://www.w3.org/2000/svg">
-  <rect width="512" height="512" rx="112" fill="#1A1712"/>
+  <!-- Transparent background: no tile behind the mark, so the PWA splash
+       shows just the bus + route floating on the launch background_color. -->
   <!-- route line -->
   <path d="M96 380 C 180 380, 180 200, 300 200 S 430 130, 430 130"
         fill="none" stroke="#F4B01A" stroke-width="14" stroke-linecap="round" opacity="0.85"/>

@@ -8,10 +8,11 @@
 
 .hero {
   position: relative;
-  /* Grow to absorb spare vertical space instead of leaving dead space under
-     the form — the branded hero fills the gap on tall screens. */
-  min-height: 300px;
-  flex: 1;
+  /* Grows to absorb spare height (fills the gap under the form on tall
+     screens) but can also shrink so the whole screen fits in one viewport —
+     no scrolling on shorter phones. */
+  flex: 1 1 auto;
+  min-height: 0;
   background: var(--asphalt);
   overflow: hidden;
 }
