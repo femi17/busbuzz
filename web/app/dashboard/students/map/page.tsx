@@ -3,22 +3,12 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import { ArrowLeft, Upload, X, Save, ChevronDown, ChevronUp, UserX } from 'lucide-react';
+import type { Map as MapLibreMap, Marker } from 'maplibre-gl';
+import 'maplibre-gl/dist/maplibre-gl.css';
 import { createClient } from '@/lib/supabase';
-import { loadGoogleMaps } from '@/lib/google-maps';
+import { OSM_STYLE } from '@/lib/osm';
+import { mapboxSuggest, geocodeAddress } from '@/lib/mapbox-geocode';
 import { haversineDistance } from '../../../../../shared/geo';
-
-/* ── Google Maps loader ─────────────────────────────────────── */
-
-function useGoogleMaps(): boolean {
-  const [loaded, setLoaded] = useState(
-    () => typeof window !== 'undefined' && !!(window as any).google?.maps?.places,
-  );
-  useEffect(() => {
-    if (loaded) return;
-    loadGoogleMaps().then(() => setLoaded(true)).catch(() => {});
-  }, [loaded]);
-  return loaded;
-}
 
 /* ── types ─────────────────────────────────────────────────── */
 
@@ -51,15 +41,35 @@ const LAGOS_CENTER = { lat: 6.5244, lng: 3.3792 };
 // A student within this distance of an existing stop shares it (same street);
 // farther out, their street becomes a new stop on the route.
 const STOP_SNAP_RADIUS_M = 250;
-const PIN_COLOR = '#F59E0B';
+const PIN_COLOR = '#F59E0B';        // existing on route
+const NEW_COLOR = '#22c55e';        // unsaved new draft
 const NEEDS_ATTENTION_COLOR = '#EF4444';
-// Classic teardrop pin: point at origin (0,0), circle head centred at (0,-30)
-const PIN_PATH = 'M 0 0 C -2 -20 -10 -22 -10 -30 A 10 10 0 1 1 10 -30 C 10 -22 2 -20 0 0 z';
+
+// MapLibre markers are HTML elements (unlike Google's icon descriptor). Emit a
+// teardrop whose tip is at the bottom, so anchor:'bottom' lands the tip on the
+// coordinate, with the student's initial in the head. Returned as markup so an
+// existing marker can restyle in place (selection/colour) without being torn
+// down — keeping its drag + click listeners intact.
+function pinSvg(letter: string, fill: string, selected: boolean): string {
+  return `<svg width="30" height="40" viewBox="0 0 30 40" xmlns="http://www.w3.org/2000/svg">
+      <path d="M15 39 C 12 21 2 20 2 13 A 13 13 0 1 1 28 13 C 28 20 18 21 15 39 Z"
+        fill="${fill}" stroke="${selected ? '#0C1E3D' : '#ffffff'}" stroke-width="${selected ? 2.5 : 1.5}" />
+      <text x="15" y="17" text-anchor="middle" font-size="12" font-weight="bold" fill="#ffffff"
+        font-family="system-ui, sans-serif">${letter}</text>
+    </svg>`;
+}
+
+function pinColor(s: { needsAttention: boolean; isNew: boolean }): string {
+  return s.needsAttention ? NEEDS_ATTENTION_COLOR : s.isNew ? NEW_COLOR : PIN_COLOR;
+}
 
 /* ── Component ──────────────────────────────────────────────── */
 
 export default function StudentMapPage() {
-  const mapsLoaded = useGoogleMaps();
+  // True once the MapLibre map instance has initialised. Geocoding and address
+  // autocomplete no longer depend on a loaded map SDK (they're Mapbox HTTP
+  // calls), so only the pin rendering waits on this.
+  const [mapLoaded, setMapLoaded] = useState(false);
 
   const [routes, setRoutes] = useState<RouteOption[]>([]);
   const [selectedRouteId, setSelectedRouteId] = useState<string>('');
@@ -90,7 +100,7 @@ export default function StudentMapPage() {
   const [listOpen, setListOpen] = useState(true);
 
   /* ── address autocomplete state ── */
-  const [addressSuggestions, setAddressSuggestions] = useState<Array<{ text: string; suggestion: any }>>([]);
+  const [addressSuggestions, setAddressSuggestions] = useState<Array<{ text: string; lat: number; lng: number }>>([]);
   const [showAddressSugs, setShowAddressSugs] = useState(false);
 
   /* ── student name search state ── */
@@ -99,10 +109,10 @@ export default function StudentMapPage() {
 
   /* ── refs ── */
   const mapRef = useRef<HTMLDivElement>(null);
-  const mapInst = useRef<any>(null);
-  const markersRef = useRef<Map<string, any>>(new Map());
+  const mapInst = useRef<MapLibreMap | null>(null);
+  const markersRef = useRef<Map<string, Marker>>(new Map());
+  const fittedSigRef = useRef<string>('');
   const placeSelectedCoords = useRef<{ lat: number; lng: number } | null>(null);
-  const addressSessionRef = useRef<any>(null);
   const addressDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const studentDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -132,42 +142,44 @@ export default function StudentMapPage() {
     init();
   }, []);
 
-  /* ── geocode helper (uses Places Text Search — new API, no billing gate) ── */
-  const geocode = useCallback(async (address: string): Promise<{ lat: number; lng: number } | null> => {
-    try {
-      const g = (window as any).google;
-      const { places } = await g.maps.places.Place.searchByText({
-        textQuery: `${address}, Nigeria`,
-        fields: ['location'],
-        maxResultCount: 1,
-      });
-      if (places?.[0]?.location) {
-        return { lat: places[0].location.lat(), lng: places[0].location.lng() };
-      }
-      return null;
-    } catch {
-      return null;
-    }
-  }, []);
+  /* ── geocode helper (Mapbox Geocoding API — accurate NG streets) ── */
+  const geocode = useCallback(
+    (address: string): Promise<{ lat: number; lng: number } | null> => geocodeAddress(address),
+    [],
+  );
 
-  /* ── init map (waits for school center + maps SDK) ── */
+  /* ── init map (waits for school center) ── */
   useEffect(() => {
-    if (!mapsLoaded || !schoolCenterReady || !mapRef.current || mapInst.current) return;
-    const g = (window as any).google;
-    const center = schoolCenter ?? LAGOS_CENTER;
-    mapInst.current = new g.maps.Map(mapRef.current, {
-      center,
-      zoom: schoolCenter ? 14 : 12,
-      mapTypeControl: false,
-      streetViewControl: false,
-      fullscreenControl: false,
-      zoomControlOptions: { position: g.maps.ControlPosition.RIGHT_CENTER },
-    });
-  }, [mapsLoaded, schoolCenterReady, schoolCenter]);
+    if (!schoolCenterReady || !mapRef.current || mapInst.current) return;
+    let cancelled = false;
+
+    (async () => {
+      const maplibregl = (await import('maplibre-gl')).default;
+      if (cancelled || !mapRef.current || mapInst.current) return;
+      const center = schoolCenter ?? LAGOS_CENTER;
+      const map = new maplibregl.Map({
+        container: mapRef.current,
+        style: OSM_STYLE,
+        center: [center.lng, center.lat],
+        zoom: schoolCenter ? 14 : 12,
+        attributionControl: false,
+      });
+      map.addControl(new maplibregl.NavigationControl({ showCompass: false }), 'top-right');
+      map.addControl(new maplibregl.AttributionControl({ compact: true }), 'bottom-right');
+      mapInst.current = map;
+      map.on('load', () => {
+        if (!cancelled) setMapLoaded(true);
+      });
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [schoolCenterReady, schoolCenter]);
 
   /* ── load existing students when route changes ── */
   useEffect(() => {
-    if (!selectedRouteId || !mapsLoaded) {
+    if (!selectedRouteId) {
       setStudents([]);
       setRouteStops([]);
       setNoParentCount(0);
@@ -294,35 +306,17 @@ export default function StudentMapPage() {
     loadRoute();
     return () => { cancelled = true; };
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedRouteId, mapsLoaded]);
+  }, [selectedRouteId]);
 
-  /* ── address autocomplete (AutocompleteSuggestion — new Places API, no shadow DOM) ── */
+  /* ── address autocomplete (Mapbox Geocoding — NG, Lagos-biased) ── */
   const fetchAddressSuggestions = useCallback(async (input: string) => {
-    if (!input.trim() || input.length < 3 || !mapsLoaded) {
+    if (!input.trim() || input.length < 3) {
       setAddressSuggestions([]);
       return;
     }
-    try {
-      const g = (window as any).google;
-      if (!addressSessionRef.current) {
-        addressSessionRef.current = new g.maps.places.AutocompleteSessionToken();
-      }
-      const { suggestions } = await g.maps.places.AutocompleteSuggestion.fetchAutocompleteSuggestions({
-        input,
-        sessionToken: addressSessionRef.current,
-        includedRegionCodes: ['ng'],
-        language: 'en',
-      });
-      setAddressSuggestions(
-        (suggestions as any[]).map((s: any) => ({
-          text: s.placePrediction.text.toString(),
-          suggestion: s,
-        })),
-      );
-    } catch {
-      setAddressSuggestions([]);
-    }
-  }, [mapsLoaded]);
+    const results = await mapboxSuggest(input);
+    setAddressSuggestions(results.map((r) => ({ text: r.placeName, lat: r.lat, lng: r.lng })));
+  }, []);
 
   function handleDraftAddressChange(val: string) {
     setDraftAddress(val);
@@ -337,18 +331,13 @@ export default function StudentMapPage() {
     }
   }
 
-  async function selectAddressSuggestion(item: { text: string; suggestion: any }) {
+  function selectAddressSuggestion(item: { text: string; lat: number; lng: number }) {
     setDraftAddress(item.text);
     setShowAddressSugs(false);
     setAddressSuggestions([]);
-    addressSessionRef.current = null;
-    try {
-      const place = item.suggestion.placePrediction.toPlace();
-      await place.fetchFields({ fields: ['location'] });
-      if (place.location) {
-        placeSelectedCoords.current = { lat: place.location.lat(), lng: place.location.lng() };
-      }
-    } catch { /* ignore */ }
+    // Coordinates ride along with the Mapbox suggestion — captured immediately,
+    // no second "retrieve" round-trip.
+    placeSelectedCoords.current = { lat: item.lat, lng: item.lng };
   }
 
   /* ── student name search ── */
@@ -398,68 +387,70 @@ export default function StudentMapPage() {
 
   /* ── sync map markers ── */
   useEffect(() => {
-    if (!mapsLoaded || !mapInst.current) return;
-    const g = (window as any).google;
+    if (!mapLoaded || !mapInst.current) return;
+    let cancelled = false;
 
-    const live = new Set(students.map(s => s.id));
-    for (const [id, m] of markersRef.current) {
-      if (!live.has(id)) { m.setMap(null); markersRef.current.delete(id); }
-    }
+    (async () => {
+      const maplibregl = (await import('maplibre-gl')).default;
+      const map = mapInst.current;
+      if (cancelled || !map) return;
 
-    students.forEach(student => {
-      const isSelected = student.id === selectedId;
-      const isNew = student.isNew;
+      // Drop markers for students no longer present.
+      const live = new Set(students.map(s => s.id));
+      for (const [id, marker] of markersRef.current) {
+        if (!live.has(id)) { marker.remove(); markersRef.current.delete(id); }
+      }
 
-      const pinIcon = (selected: boolean, newStudent: boolean, needsAttention: boolean) => ({
-        path: PIN_PATH,
-        fillColor: needsAttention ? NEEDS_ATTENTION_COLOR : newStudent ? '#22c55e' : PIN_COLOR,
-        fillOpacity: 1,
-        strokeColor: selected ? '#0C1E3D' : '#ffffff',
-        strokeWeight: selected ? 2.5 : 1.5,
-        scale: 1,
-        anchor: new g.maps.Point(0, 0),
-        labelOrigin: new g.maps.Point(0, -30),
+      students.forEach(student => {
+        const selected = student.id === selectedId;
+        const svg = pinSvg(student.name[0].toUpperCase(), pinColor(student), selected);
+        const existing = markersRef.current.get(student.id);
+
+        if (existing) {
+          // Restyle in place (colour/selection) and move — listeners survive.
+          existing.getElement().innerHTML = svg;
+          existing.setLngLat([student.lng, student.lat]);
+        } else {
+          const el = document.createElement('div');
+          el.style.cursor = 'grab';
+          el.innerHTML = svg;
+          el.addEventListener('click', (ev) => {
+            ev.stopPropagation();
+            setSelectedId(prev => prev === student.id ? null : student.id);
+          });
+          const marker = new maplibregl.Marker({ element: el, anchor: 'bottom', draggable: true })
+            .setLngLat([student.lng, student.lat])
+            .addTo(map);
+          marker.on('dragend', () => {
+            const { lat, lng } = marker.getLngLat();
+            setStudents(prev => prev.map(s =>
+              s.id === student.id ? { ...s, lat, lng, saved: false, needsAttention: false } : s,
+            ));
+          });
+          markersRef.current.set(student.id, marker);
+        }
       });
 
-      if (!markersRef.current.has(student.id)) {
-        const marker = new g.maps.Marker({
-          position: { lat: student.lat, lng: student.lng },
-          map: mapInst.current,
-          title: student.name,
-          draggable: true,
-          icon: pinIcon(isSelected, isNew, student.needsAttention),
-          label: {
-            text: student.name[0].toUpperCase(),
-            color: '#fff',
-            fontSize: '11px',
-            fontWeight: 'bold',
-          },
-        });
-        marker.addListener('click', () =>
-          setSelectedId(prev => prev === student.id ? null : student.id),
-        );
-        marker.addListener('dragend', (e: any) => {
-          const lat = e.latLng.lat();
-          const lng = e.latLng.lng();
-          setStudents(prev => prev.map(s =>
-            s.id === student.id ? { ...s, lat, lng, saved: false, needsAttention: false } : s,
-          ));
-        });
-        markersRef.current.set(student.id, marker);
-      } else {
-        const m = markersRef.current.get(student.id);
-        m.setPosition({ lat: student.lat, lng: student.lng });
-        m.setIcon(pinIcon(isSelected, isNew, student.needsAttention));
+      // Fit bounds only when the set of pin positions actually changes, so
+      // merely selecting a student doesn't jump the map.
+      const sig = students
+        .map(s => `${s.id}:${s.lat.toFixed(5)},${s.lng.toFixed(5)}`)
+        .sort()
+        .join('|');
+      if (students.length > 0 && sig !== fittedSigRef.current) {
+        fittedSigRef.current = sig;
+        if (students.length === 1) {
+          map.easeTo({ center: [students[0].lng, students[0].lat], zoom: 15, duration: 0 });
+        } else {
+          const bounds = new maplibregl.LngLatBounds();
+          students.forEach(s => bounds.extend([s.lng, s.lat]));
+          map.fitBounds(bounds, { padding: 60, maxZoom: 15, duration: 0 });
+        }
       }
-    });
+    })();
 
-    if (students.length > 0) {
-      const bounds = new g.maps.LatLngBounds();
-      students.forEach(s => bounds.extend({ lat: s.lat, lng: s.lng }));
-      mapInst.current.fitBounds(bounds, 60);
-      if (students.length === 1) mapInst.current.setZoom(15);
-    }
-  }, [students, selectedId, mapsLoaded]);
+    return () => { cancelled = true; };
+  }, [students, selectedId, mapLoaded]);
 
   /* ── add single student ── */
   async function handleAddStudent() {
@@ -498,7 +489,6 @@ export default function StudentMapPage() {
       setShowAddressSugs(false);
       setStudentSugs([]);
       setShowStudentSugs(false);
-      addressSessionRef.current = null;
     } finally {
       setIsGeocoding(false);
     }
@@ -561,7 +551,7 @@ export default function StudentMapPage() {
   /* ── remove student ── */
   function removeStudent(id: string) {
     const m = markersRef.current.get(id);
-    if (m) { m.setMap(null); markersRef.current.delete(id); }
+    if (m) { m.remove(); markersRef.current.delete(id); }
     setStudents(prev => prev.filter(s => s.id !== id));
     if (selectedId === id) setSelectedId(null);
   }
@@ -858,7 +848,7 @@ export default function StudentMapPage() {
               <button
                 type="button"
                 onClick={handleAddStudent}
-                disabled={isGeocoding || !mapsLoaded || !draftName.trim() || (!draftAddress.trim() && !placeSelectedCoords.current)}
+                disabled={isGeocoding || !mapLoaded || !draftName.trim() || (!draftAddress.trim() && !placeSelectedCoords.current)}
                 className="shrink-0 w-full sm:w-auto rounded-[var(--radius-btn)] bg-amber px-4 py-2 text-sm font-semibold text-navy hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-60 active:scale-95 transition-all duration-150"
               >
                 {isGeocoding ? 'Locating…' : '+ Add to Map'}
@@ -900,7 +890,7 @@ export default function StudentMapPage() {
 
       {/* ── Map area ── */}
       <div className="flex-1 relative bg-[#e8e0d8]">
-        {(!mapsLoaded || !schoolCenterReady) && (
+        {(!mapLoaded || !schoolCenterReady) && (
           <div className="absolute inset-0 flex items-center justify-center bg-canvas z-10">
             <p className="text-sm text-sub animate-pulse">Loading map…</p>
           </div>
@@ -1016,7 +1006,7 @@ export default function StudentMapPage() {
         )}
 
         {/* Empty hint */}
-        {mapsLoaded && schoolCenterReady && students.length === 0 && !isLoadingRoute && (
+        {mapLoaded && schoolCenterReady && students.length === 0 && !isLoadingRoute && (
           <div className="absolute bottom-6 left-1/2 -translate-x-1/2 w-[90vw] max-w-sm sm:w-auto sm:max-w-none bg-surface/90 backdrop-blur-sm rounded-[var(--radius-card)] shadow-[var(--shadow-float)] px-4 py-2.5 text-[12px] text-sub text-center sm:whitespace-nowrap z-10">
             {routeSelected
               ? noParentCount > 0
