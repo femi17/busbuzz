@@ -3,8 +3,10 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { Play, Pause, X, RotateCcw, MapPin } from 'lucide-react';
+import type { Map as MapLibreMap, Marker, GeoJSONSource } from 'maplibre-gl';
+import 'maplibre-gl/dist/maplibre-gl.css';
 import { createClient } from '@/lib/supabase';
-import { hasGoogleMapsToken, loadGoogleMaps } from '@/lib/google-maps';
+import { OSM_STYLE } from '@/lib/osm';
 import type { TripReplayData, TripReplayPoint } from '../../../shared/types';
 
 const SPEEDS = [30, 60, 120, 300] as const; // playback multipliers (× real time)
@@ -33,6 +35,20 @@ function stopDot(visited: boolean): string {
     <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 16 16">
       <circle cx="8" cy="8" r="6" fill="${fill}" stroke="${ring}" stroke-width="2"/>
     </svg>`);
+}
+
+// MapLibre markers are HTML elements; the SVG icons become <img>.
+function imgEl(url: string, size: number): HTMLImageElement {
+  const img = document.createElement('img');
+  img.src = url;
+  img.width = size;
+  img.height = size;
+  img.style.display = 'block';
+  return img;
+}
+
+function lineFeature(coords: [number, number][]): GeoJSON.Feature<GeoJSON.LineString> {
+  return { type: 'Feature', properties: {}, geometry: { type: 'LineString', coordinates: coords } };
 }
 
 function clock(ms: number): string {
@@ -85,10 +101,9 @@ export function TripReplayModal({
   const [mounted, setMounted] = useState(false);
 
   const mapContainerRef = useRef<HTMLDivElement | null>(null);
-  const mapRef = useRef<google.maps.Map | null>(null);
-  const busMarkerRef = useRef<google.maps.Marker | null>(null);
-  const stopMarkersRef = useRef<Map<string, google.maps.Marker>>(new Map());
-  const traveledRef = useRef<google.maps.Polyline | null>(null);
+  const mapRef = useRef<MapLibreMap | null>(null);
+  const busMarkerRef = useRef<Marker | null>(null);
+  const stopMarkersRef = useRef<Map<string, Marker>>(new Map());
   const rafRef = useRef<number | null>(null);
   const lastTsRef = useRef<number | null>(null);
   const playbackRef = useRef(0);
@@ -147,94 +162,104 @@ export function TripReplayModal({
 
   // Initialise the map once data + container are ready.
   useEffect(() => {
-    if (!data || data.points.length === 0 || !mapContainerRef.current || !hasGoogleMapsToken()) return;
+    if (!data || data.points.length === 0 || !mapContainerRef.current) return;
     let cancelled = false;
+    const replay = data;
 
-    loadGoogleMaps().then((google) => {
+    (async () => {
+      const maplibregl = (await import('maplibre-gl')).default;
       if (cancelled || !mapContainerRef.current) return;
 
-      const bounds = new google.maps.LatLngBounds();
-      data.points.forEach((p) => bounds.extend({ lat: p.lat, lng: p.lng }));
-      data.stops.forEach((s) => bounds.extend({ lat: s.lat, lng: s.lng }));
-
-      const map = new google.maps.Map(mapContainerRef.current, {
-        disableDefaultUI: true,
-        zoomControl: true,
-        gestureHandling: 'greedy',
-        backgroundColor: '#0A0E19',
-        styles: [{ featureType: 'poi', stylers: [{ visibility: 'off' }] }],
+      const map = new maplibregl.Map({
+        container: mapContainerRef.current,
+        style: OSM_STYLE,
+        attributionControl: false,
       });
-      map.fitBounds(bounds, 48);
+      map.addControl(new maplibregl.NavigationControl({ showCompass: false }), 'top-right');
+      map.addControl(new maplibregl.AttributionControl({ compact: true }), 'bottom-right');
       mapRef.current = map;
 
-      // Full recorded route (faint), then the traveled portion drawn in amber on top.
-      new google.maps.Polyline({
-        path: data.points.map((p) => ({ lat: p.lat, lng: p.lng })),
-        map,
-        strokeColor: '#9AA3B2',
-        strokeOpacity: 0.55,
-        strokeWeight: 4,
-      });
-      traveledRef.current = new google.maps.Polyline({
-        path: [],
-        map,
-        strokeColor: '#FFC900',
-        strokeOpacity: 1,
-        strokeWeight: 5,
-      });
+      const bounds = new maplibregl.LngLatBounds();
+      replay.points.forEach((p) => bounds.extend([p.lng, p.lat]));
+      replay.stops.forEach((s) => bounds.extend([s.lng, s.lat]));
+      map.fitBounds(bounds, { padding: 48, duration: 0 });
 
-      data.stops.forEach((s) => {
-        const marker = new google.maps.Marker({
-          position: { lat: s.lat, lng: s.lng },
-          map,
-          icon: { url: stopDot(false), scaledSize: new google.maps.Size(16, 16), anchor: new google.maps.Point(8, 8) },
-          title: s.name,
-          zIndex: 1,
+      map.on('load', () => {
+        if (cancelled) return;
+
+        // Full recorded route (faint), then the traveled portion in amber on top.
+        map.addSource('full-route', {
+          type: 'geojson',
+          data: lineFeature(replay.points.map((p) => [p.lng, p.lat])),
         });
-        stopMarkersRef.current.set(s.id, marker);
-      });
+        map.addLayer({
+          id: 'full-route',
+          type: 'line',
+          source: 'full-route',
+          layout: { 'line-cap': 'round', 'line-join': 'round' },
+          paint: { 'line-color': '#9AA3B2', 'line-opacity': 0.55, 'line-width': 4 },
+        });
+        map.addSource('traveled', { type: 'geojson', data: lineFeature([]) });
+        map.addLayer({
+          id: 'traveled',
+          type: 'line',
+          source: 'traveled',
+          layout: { 'line-cap': 'round', 'line-join': 'round' },
+          paint: { 'line-color': '#FFC900', 'line-width': 5 },
+        });
 
-      const start = data.points[0];
-      busMarkerRef.current = new google.maps.Marker({
-        position: { lat: start.lat, lng: start.lng },
-        map,
-        icon: { url: busIconUrl(), scaledSize: new google.maps.Size(34, 34), anchor: new google.maps.Point(17, 17) },
-        zIndex: 999,
+        replay.stops.forEach((s) => {
+          const marker = new maplibregl.Marker({ element: imgEl(stopDot(false), 16), anchor: 'center' })
+            .setLngLat([s.lng, s.lat])
+            .addTo(map);
+          stopMarkersRef.current.set(s.id, marker);
+        });
+
+        const start = replay.points[0];
+        busMarkerRef.current = new maplibregl.Marker({ element: imgEl(busIconUrl(), 34), anchor: 'center' })
+          .setLngLat([start.lng, start.lat])
+          .addTo(map);
+
+        // Draw the initial playback position now that the layers/markers exist.
+        syncVisuals(playbackRef.current);
       });
-    });
+    })();
 
     const stopMarkers = stopMarkersRef.current;
     return () => {
       cancelled = true;
-      busMarkerRef.current?.setMap(null);
+      busMarkerRef.current?.remove();
       busMarkerRef.current = null;
-      traveledRef.current?.setMap(null);
-      traveledRef.current = null;
-      stopMarkers.forEach((m) => m.setMap(null));
+      stopMarkers.forEach((m) => m.remove());
       stopMarkers.clear();
+      mapRef.current?.remove();
       mapRef.current = null;
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [data]);
 
   // Sync map visuals to the current playback time.
   const syncVisuals = useCallback((t: number) => {
     if (!data) return;
     const pos = positionAt(data.points, t);
-    if (pos && busMarkerRef.current) busMarkerRef.current.setPosition(pos);
-    if (traveledRef.current) {
-      const traveled = data.points.filter((p) => p.t <= t).map((p) => ({ lat: p.lat, lng: p.lng }));
-      if (pos) traveled.push(pos);
-      traveledRef.current.setPath(traveled);
+    if (pos && busMarkerRef.current) busMarkerRef.current.setLngLat([pos.lng, pos.lat]);
+
+    const src = mapRef.current?.getSource('traveled') as GeoJSONSource | undefined;
+    if (src) {
+      const coords: [number, number][] = data.points.filter((p) => p.t <= t).map((p) => [p.lng, p.lat]);
+      if (pos) coords.push([pos.lng, pos.lat]);
+      src.setData(lineFeature(coords));
     }
+
     data.stops.forEach((s) => {
       const marker = stopMarkersRef.current.get(s.id);
       if (!marker) return;
       const visited = s.arrivedT !== null && s.arrivedT <= t;
-      marker.setIcon({
-        url: stopDot(visited),
-        scaledSize: new google.maps.Size(visited ? 20 : 16, visited ? 20 : 16),
-        anchor: new google.maps.Point(visited ? 10 : 8, visited ? 10 : 8),
-      });
+      const size = visited ? 20 : 16;
+      const img = marker.getElement() as HTMLImageElement;
+      img.src = stopDot(visited);
+      img.width = size;
+      img.height = size;
     });
   }, [data]);
 
@@ -342,10 +367,6 @@ export function TripReplayModal({
             ) : error ? (
               <div className="absolute inset-0 flex items-center justify-center px-6 text-center">
                 <p className="text-sm text-red">{error}</p>
-              </div>
-            ) : !hasGoogleMapsToken() ? (
-              <div className="absolute inset-0 flex items-center justify-center px-6 text-center">
-                <p className="text-sm text-white/50">Replay map needs a Google Maps token.</p>
               </div>
             ) : data && data.points.length === 0 ? (
               <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 px-6 text-center">
