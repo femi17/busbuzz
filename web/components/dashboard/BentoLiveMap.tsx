@@ -1,9 +1,11 @@
 'use client';
 
 import { useEffect, useRef, useState, useCallback } from 'react';
+import type { Map as MapLibreMap, Marker } from 'maplibre-gl';
+import 'maplibre-gl/dist/maplibre-gl.css';
 import { RotateCcw } from 'lucide-react';
 import { createClient } from '@/lib/supabase';
-import { hasGoogleMapsToken, loadGoogleMaps } from '@/lib/google-maps';
+import { OSM_STYLE } from '@/lib/osm';
 
 type ActiveBusPosition = {
   busId: string;
@@ -50,7 +52,19 @@ function busIconUrl(): string {
     </svg>`);
 }
 
-const DEFAULT_CENTER = { lat: 6.5244, lng: 3.3792 };
+// MapLibre markers take an HTML element rather than Google's icon descriptor —
+// build an <img> from the same SVG data URL.
+function iconMarkerEl(url: string, size: number): HTMLImageElement {
+  const el = document.createElement('img');
+  el.src = url;
+  el.width = size;
+  el.height = size;
+  el.style.cursor = 'pointer';
+  el.style.display = 'block';
+  return el;
+}
+
+const DEFAULT_CENTER: [number, number] = [3.3792, 6.5244]; // [lng, lat]
 
 export function BentoLiveMap({
   schoolLat,
@@ -63,8 +77,8 @@ export function BentoLiveMap({
 }) {
   const hasSchoolLocation = typeof schoolLat === 'number' && typeof schoolLng === 'number';
   const mapContainerRef = useRef<HTMLDivElement | null>(null);
-  const mapRef = useRef<google.maps.Map | null>(null);
-  const markersRef = useRef<google.maps.Marker[]>([]);
+  const mapRef = useRef<MapLibreMap | null>(null);
+  const markersRef = useRef<Marker[]>([]);
   const [buses, setBuses] = useState<ActiveBusPosition[]>([]);
   const [lastUpdated, setLastUpdated] = useState<number | null>(null);
   const [relativeLabel, setRelativeLabel] = useState('');
@@ -123,53 +137,55 @@ export function BentoLiveMap({
 
   // Initialize map
   useEffect(() => {
-    if (!hasGoogleMapsToken() || !mapContainerRef.current) return;
+    if (!mapContainerRef.current) return;
     let cancelled = false;
-    let schoolMarker: google.maps.Marker | null = null;
+    let schoolMarker: Marker | null = null;
 
-    loadGoogleMaps().then((google) => {
+    (async () => {
+      const maplibregl = (await import('maplibre-gl')).default;
       if (cancelled || !mapContainerRef.current) return;
 
-      const center = hasSchoolLocation
-        ? { lat: schoolLat as number, lng: schoolLng as number }
+      const center: [number, number] = hasSchoolLocation
+        ? [schoolLng as number, schoolLat as number]
         : DEFAULT_CENTER;
 
-      const map = new google.maps.Map(mapContainerRef.current, {
+      const map = new maplibregl.Map({
+        container: mapContainerRef.current,
+        style: OSM_STYLE,
         center,
         zoom: hasSchoolLocation ? 13 : 11,
-        disableDefaultUI: true,
-        zoomControl: true,
-        styles: [{ featureType: 'poi', stylers: [{ visibility: 'off' }] }],
+        attributionControl: false,
       });
-
+      map.addControl(new maplibregl.NavigationControl({ showCompass: false }), 'top-right');
+      map.addControl(new maplibregl.AttributionControl({ compact: true }), 'bottom-right');
       mapRef.current = map;
 
       if (hasSchoolLocation) {
-        const infoWindow = new google.maps.InfoWindow({
-          content: `<div style="font-family: inherit; font-size: 12px; padding: 2px 0;">
+        const popup = new maplibregl.Popup({ offset: 18, closeButton: false }).setHTML(
+          `<div style="font-family: inherit; font-size: 12px; padding: 2px 0;">
             <div style="font-weight: 700; color: #0A0A0A;">School</div>
             ${schoolAddress ? `<div style="color: #6B6B6B; margin-top: 2px;">${schoolAddress}</div>` : ''}
           </div>`,
-        });
-        schoolMarker = new google.maps.Marker({
-          position: { lat: schoolLat as number, lng: schoolLng as number },
-          map,
-          icon: { url: schoolIconUrl(), scaledSize: new google.maps.Size(30, 30) },
-        });
-        schoolMarker.addListener('click', () => infoWindow.open({ map, anchor: schoolMarker! }));
+        );
+        schoolMarker = new maplibregl.Marker({ element: iconMarkerEl(schoolIconUrl(), 30) })
+          .setLngLat([schoolLng as number, schoolLat as number])
+          .setPopup(popup)
+          .addTo(map);
       }
 
-      setMapReady(true);
-    });
-
-    const currentMarkers = markersRef.current;
+      map.on('load', () => {
+        if (!cancelled) setMapReady(true);
+      });
+    })();
 
     return () => {
       cancelled = true;
-      currentMarkers.forEach((m) => m.setMap(null));
+      markersRef.current.forEach((m) => m.remove());
       markersRef.current = [];
-      schoolMarker?.setMap(null);
+      schoolMarker?.remove();
+      mapRef.current?.remove();
       mapRef.current = null;
+      setMapReady(false);
     };
   }, [hasSchoolLocation, schoolLat, schoolLng, schoolAddress]);
 
@@ -177,28 +193,34 @@ export function BentoLiveMap({
   useEffect(() => {
     if (!mapReady || !mapRef.current) return;
     const map = mapRef.current;
+    let cancelled = false;
 
-    markersRef.current.forEach((m) => m.setMap(null));
-    markersRef.current = [];
+    (async () => {
+      const maplibregl = (await import('maplibre-gl')).default;
+      if (cancelled) return;
 
-    buses.forEach((bus) => {
-      const infoWindow = new google.maps.InfoWindow({
-        content: `<div style="font-family: inherit; font-size: 12px; padding: 2px 0;">
-          <div style="font-weight: 700; color: #0A0A0A;">${bus.plateNumber}</div>
-          <div style="color: #6B6B6B; margin-top: 2px;">${bus.routeName}</div>
-          <div style="color: #6B6B6B; margin-top: 1px; font-size: 11px;">${relativeTime(bus.lastUpdateTime)}</div>
-        </div>`,
+      markersRef.current.forEach((m) => m.remove());
+      markersRef.current = [];
+
+      buses.forEach((bus) => {
+        const popup = new maplibregl.Popup({ offset: 20, closeButton: false }).setHTML(
+          `<div style="font-family: inherit; font-size: 12px; padding: 2px 0;">
+            <div style="font-weight: 700; color: #0A0A0A;">${bus.plateNumber}</div>
+            <div style="color: #6B6B6B; margin-top: 2px;">${bus.routeName}</div>
+            <div style="color: #6B6B6B; margin-top: 1px; font-size: 11px;">${relativeTime(bus.lastUpdateTime)}</div>
+          </div>`,
+        );
+        const marker = new maplibregl.Marker({ element: iconMarkerEl(busIconUrl(), 32) })
+          .setLngLat([bus.lng, bus.lat])
+          .setPopup(popup)
+          .addTo(map);
+        markersRef.current.push(marker);
       });
+    })();
 
-      const marker = new google.maps.Marker({
-        position: { lat: bus.lat, lng: bus.lng },
-        map,
-        icon: { url: busIconUrl(), scaledSize: new google.maps.Size(32, 32) },
-      });
-      marker.addListener('click', () => infoWindow.open({ map, anchor: marker }));
-
-      markersRef.current.push(marker);
-    });
+    return () => {
+      cancelled = true;
+    };
   }, [buses, mapReady]);
 
   // Relative time label update
@@ -303,17 +325,11 @@ export function BentoLiveMap({
 
       {/* Map container */}
       <div className="relative mt-3">
-        {hasGoogleMapsToken() ? (
-          <div ref={mapContainerRef} className="h-[340px] w-full" />
-        ) : (
-          <div className="h-[340px] w-full bg-canvas flex items-center justify-center">
-            <p className="text-xs text-sub">Map preview requires a Google Maps token</p>
-          </div>
-        )}
+        <div ref={mapContainerRef} className="h-[340px] w-full" />
 
         {/* Last updated pill */}
         {lastUpdated && (
-          <div className="absolute bottom-3 left-3 bg-white/90 backdrop-blur rounded-[var(--radius-chip)] px-3 py-1.5 shadow-[var(--shadow-float)]">
+          <div className="absolute bottom-3 left-3 bg-white/90 backdrop-blur rounded-[var(--radius-chip)] px-3 py-1.5 shadow-[var(--shadow-float)] z-10">
             <span className="board-figure text-[11px] text-sub">
               Last updated {relativeLabel}
             </span>
