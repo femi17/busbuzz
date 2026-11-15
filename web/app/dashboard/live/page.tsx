@@ -1,8 +1,10 @@
 'use client';
 
 import { useEffect, useRef, useState, useCallback } from 'react';
+import type { Map as MapLibreMap, Marker, Popup } from 'maplibre-gl';
+import 'maplibre-gl/dist/maplibre-gl.css';
 import { createClient } from '@/lib/supabase';
-import { hasGoogleMapsToken, loadGoogleMaps } from '@/lib/google-maps';
+import { OSM_STYLE } from '@/lib/osm';
 import { DashboardHeader } from '@/components/dashboard/DashboardHeader';
 import type { RealtimeChannel } from '@supabase/supabase-js';
 import type { LocationBroadcast } from '../../../../shared/types';
@@ -86,10 +88,34 @@ function busIconUrl(color: string): string {
   return `data:image/svg+xml;charset=UTF-8,${encodeURIComponent(svg)}`;
 }
 
+type LatLng = { lat: number; lng: number };
+
+// MapLibre markers are HTML elements — an <img> of the bus icon, recolored by
+// swapping its src on signal-lost.
+function busMarkerEl(color: string): HTMLImageElement {
+  const img = document.createElement('img');
+  img.src = busIconUrl(color);
+  img.width = 32;
+  img.height = 32;
+  img.style.cursor = 'pointer';
+  img.style.display = 'block';
+  return img;
+}
+
+function schoolMarkerEl(): HTMLImageElement {
+  const img = document.createElement('img');
+  img.src = schoolIconUrl();
+  img.width = 30;
+  img.height = 30;
+  img.style.cursor = 'pointer';
+  img.style.display = 'block';
+  return img;
+}
+
 function animateMarker(
-  marker: google.maps.Marker,
-  from: google.maps.LatLngLiteral,
-  to: google.maps.LatLngLiteral,
+  marker: Marker,
+  from: LatLng,
+  to: LatLng,
   duration: number,
 ) {
   const start = performance.now();
@@ -97,7 +123,7 @@ function animateMarker(
     const t = Math.min((now - start) / duration, 1);
     const lat = from.lat + (to.lat - from.lat) * t;
     const lng = from.lng + (to.lng - from.lng) * t;
-    marker.setPosition({ lat, lng });
+    marker.setLngLat([lng, lat]);
     if (t < 1) requestAnimationFrame(step);
   }
   requestAnimationFrame(step);
@@ -105,17 +131,24 @@ function animateMarker(
 
 export default function LiveMapPage() {
   const mapContainerRef = useRef<HTMLDivElement | null>(null);
-  const mapRef = useRef<google.maps.Map | null>(null);
-  const markersRef = useRef<Map<string, google.maps.Marker>>(new Map());
-  const infoWindowsRef = useRef<Map<string, google.maps.InfoWindow>>(new Map());
+  const mapRef = useRef<MapLibreMap | null>(null);
+  // The imported maplibre-gl module (default export). Stored so the realtime
+  // broadcast callback can new up Marker/Popup without re-importing. Typed
+  // loosely because maplibre-gl's default export isn't referenceable as a type
+  // expression; the marker/popup instances it creates stay typed via the refs
+  // below.
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const glRef = useRef<any>(null);
+  const markersRef = useRef<Map<string, Marker>>(new Map());
+  const infoWindowsRef = useRef<Map<string, Popup>>(new Map());
   const channelsRef = useRef<Map<string, RealtimeChannel>>(new Map());
   const tripsRef = useRef<Map<string, ActiveTripMarker>>(new Map());
-  const schoolMarkerRef = useRef<google.maps.Marker | null>(null);
+  const schoolMarkerRef = useRef<Marker | null>(null);
 
   const [trips, setTrips] = useState<ActiveTripMarker[]>([]);
   const [loadError, setLoadError] = useState(false);
   const [mapLoaded, setMapLoaded] = useState(false);
-  const [schoolLocation, setSchoolLocation] = useState<google.maps.LatLngLiteral | null>(null);
+  const [schoolLocation, setSchoolLocation] = useState<LatLng | null>(null);
   const [schoolAddress, setSchoolAddress] = useState<string | null>(null);
   const [schoolResolved, setSchoolResolved] = useState(false);
 
@@ -126,19 +159,18 @@ export default function LiveMapPage() {
   const updateMarkerVisual = useCallback((trip: ActiveTripMarker) => {
     const marker = markersRef.current.get(trip.busId);
     if (!marker) return;
-    marker.setIcon({
-      url: busIconUrl(trip.signalLost ? COLOR_SIGNAL_LOST : COLOR_NORMAL),
-      scaledSize: new google.maps.Size(32, 32),
-    });
+    (marker.getElement() as HTMLImageElement).src = busIconUrl(
+      trip.signalLost ? COLOR_SIGNAL_LOST : COLOR_NORMAL,
+    );
 
-    const infoWindow = infoWindowsRef.current.get(trip.busId);
-    if (infoWindow) {
+    const popup = infoWindowsRef.current.get(trip.busId);
+    if (popup) {
       const statusText = trip.signalLost
         ? 'Signal lost'
         : trip.lastUpdateTime
           ? relativeTime(trip.lastUpdateTime)
           : 'Waiting for GPS...';
-      infoWindow.setContent(
+      popup.setHTML(
         `<div style="font-family: inherit; font-size: 13px;">
           <div style="font-weight: 700; color: #0F2044;">${trip.plateNumber}</div>
           <div style="color: #0F2044; opacity: 0.7;">${trip.routeName}</div>
@@ -151,7 +183,7 @@ export default function LiveMapPage() {
   const removeTripMarkerAndChannel = useCallback((busId: string, tripId: string) => {
     const marker = markersRef.current.get(busId);
     if (marker) {
-      marker.setMap(null);
+      marker.remove();
       markersRef.current.delete(busId);
     }
     infoWindowsRef.current.delete(busId);
@@ -174,11 +206,11 @@ export default function LiveMapPage() {
           const current = tripsRef.current.get(trip.tripId);
           if (!current) return;
 
-          const from: google.maps.LatLngLiteral = {
+          const from: LatLng = {
             lat: current.lat ?? payload.lat,
             lng: current.lng ?? payload.lng,
           };
-          const to: google.maps.LatLngLiteral = { lat: payload.lat, lng: payload.lng };
+          const to: LatLng = { lat: payload.lat, lng: payload.lng };
 
           const updated: ActiveTripMarker = {
             ...current,
@@ -192,18 +224,17 @@ export default function LiveMapPage() {
           tripsRef.current.set(trip.tripId, updated);
 
           const map = mapRef.current;
-          if (map) {
+          const maplibregl = glRef.current;
+          if (map && maplibregl) {
             let marker = markersRef.current.get(trip.busId);
             if (!marker) {
-              const infoWindow = new google.maps.InfoWindow();
-              marker = new google.maps.Marker({
-                position: to,
-                map,
-                icon: { url: busIconUrl(COLOR_NORMAL), scaledSize: new google.maps.Size(32, 32) },
-              });
-              marker.addListener('click', () => infoWindow.open({ map, anchor: marker! }));
+              const popup = new maplibregl.Popup({ offset: 20, closeButton: false });
+              marker = new maplibregl.Marker({ element: busMarkerEl(COLOR_NORMAL), anchor: 'center' })
+                .setLngLat([to.lng, to.lat])
+                .setPopup(popup)
+                .addTo(map) as Marker;
               markersRef.current.set(trip.busId, marker);
-              infoWindowsRef.current.set(trip.busId, infoWindow);
+              infoWindowsRef.current.set(trip.busId, popup);
             } else {
               animateMarker(marker, from, to, ANIMATION_DURATION_MS);
             }
@@ -250,53 +281,56 @@ export default function LiveMapPage() {
 
   // Initial map setup — centers on the school until a bus has GPS data to show instead
   useEffect(() => {
-    if (!schoolResolved || !mapContainerRef.current || !hasGoogleMapsToken()) return;
+    if (!schoolResolved || !mapContainerRef.current) return;
     let cancelled = false;
 
-    loadGoogleMaps().then((google) => {
+    (async () => {
+      const maplibregl = (await import('maplibre-gl')).default;
       if (cancelled || !mapContainerRef.current) return;
+      glRef.current = maplibregl;
 
-      const map = new google.maps.Map(mapContainerRef.current, {
-        center: schoolLocation ?? { lat: 6.5244, lng: 3.3792 },
+      const center = schoolLocation ?? { lat: 6.5244, lng: 3.3792 };
+      const map = new maplibregl.Map({
+        container: mapContainerRef.current,
+        style: OSM_STYLE,
+        center: [center.lng, center.lat],
         zoom: schoolLocation ? 13 : 11,
-        zoomControl: true,
-        streetViewControl: false,
-        mapTypeControl: false,
-        fullscreenControl: false,
+        attributionControl: false,
       });
-
+      map.addControl(new maplibregl.NavigationControl({ showCompass: false }), 'top-right');
+      map.addControl(new maplibregl.AttributionControl({ compact: true }), 'bottom-right');
       mapRef.current = map;
 
       if (schoolLocation) {
-        const infoWindow = new google.maps.InfoWindow({
-          content: `<div style="font-family: inherit; font-size: 12px; padding: 2px 0;">
+        const popup = new maplibregl.Popup({ offset: 18, closeButton: false }).setHTML(
+          `<div style="font-family: inherit; font-size: 12px; padding: 2px 0;">
             <div style="font-weight: 700; color: #0F2044;">School</div>
             ${schoolAddress ? `<div style="color: #6B6B6B; margin-top: 2px;">${schoolAddress}</div>` : ''}
           </div>`,
-        });
-        const schoolMarker = new google.maps.Marker({
-          position: schoolLocation,
-          map,
-          icon: { url: schoolIconUrl(), scaledSize: new google.maps.Size(30, 30) },
-        });
-        schoolMarker.addListener('click', () => infoWindow.open({ map, anchor: schoolMarker }));
-        schoolMarkerRef.current = schoolMarker;
+        );
+        schoolMarkerRef.current = new maplibregl.Marker({ element: schoolMarkerEl(), anchor: 'center' })
+          .setLngLat([schoolLocation.lng, schoolLocation.lat])
+          .setPopup(popup)
+          .addTo(map);
       }
 
-      setMapLoaded(true);
-    });
+      map.on('load', () => {
+        if (!cancelled) setMapLoaded(true);
+      });
+    })();
 
     const markers = markersRef.current;
     const channels = channelsRef.current;
 
     return () => {
       cancelled = true;
-      markers.forEach((marker) => marker.setMap(null));
+      markers.forEach((marker) => marker.remove());
       markers.clear();
       channels.forEach((channel) => channel.unsubscribe());
       channels.clear();
-      schoolMarkerRef.current?.setMap(null);
+      schoolMarkerRef.current?.remove();
       schoolMarkerRef.current = null;
+      mapRef.current?.remove();
       mapRef.current = null;
     };
   }, [schoolResolved, schoolLocation, schoolAddress]);
@@ -393,24 +427,24 @@ export default function LiveMapPage() {
   useEffect(() => {
     if (!mapLoaded || !mapRef.current) return;
     const map = mapRef.current;
+    const maplibregl = glRef.current;
+    if (!maplibregl) return;
 
     trips.forEach((trip) => {
       if (!trip.hasLocation || trip.lat === null || trip.lng === null) return;
       if (markersRef.current.has(trip.busId)) return;
 
-      const infoWindow = new google.maps.InfoWindow();
-      const marker = new google.maps.Marker({
-        position: { lat: trip.lat, lng: trip.lng },
-        map,
-        icon: {
-          url: busIconUrl(trip.signalLost ? COLOR_SIGNAL_LOST : COLOR_NORMAL),
-          scaledSize: new google.maps.Size(32, 32),
-        },
-      });
-      marker.addListener('click', () => infoWindow.open({ map, anchor: marker }));
+      const popup = new maplibregl.Popup({ offset: 20, closeButton: false });
+      const marker = new maplibregl.Marker({
+        element: busMarkerEl(trip.signalLost ? COLOR_SIGNAL_LOST : COLOR_NORMAL),
+        anchor: 'center',
+      })
+        .setLngLat([trip.lng, trip.lat])
+        .setPopup(popup)
+        .addTo(map);
 
       markersRef.current.set(trip.busId, marker);
-      infoWindowsRef.current.set(trip.busId, infoWindow);
+      infoWindowsRef.current.set(trip.busId, popup);
       updateMarkerVisual(trip);
       subscribeToTrip(trip);
     });
@@ -455,8 +489,7 @@ export default function LiveMapPage() {
   const handleTripClick = useCallback((trip: ActiveTripMarker) => {
     const map = mapRef.current;
     if (!map || trip.lat === null || trip.lng === null) return;
-    map.panTo({ lat: trip.lat, lng: trip.lng });
-    map.setZoom(15);
+    map.easeTo({ center: [trip.lng, trip.lat], zoom: 15 });
   }, []);
 
   return (
@@ -473,15 +506,7 @@ export default function LiveMapPage() {
               Failed to load active trips. Please refresh.
             </div>
           )}
-          {hasGoogleMapsToken() ? (
-            <div ref={mapContainerRef} className="h-full w-full" />
-          ) : (
-            <div className="flex h-full items-center justify-center bg-white">
-              <p className="text-sm text-navy/50">
-                Google Maps token not configured. Add NEXT_PUBLIC_GOOGLEMAP_TOKEN to your .env.local file to enable the map.
-              </p>
-            </div>
-          )}
+          <div ref={mapContainerRef} className="h-full w-full" />
         </div>
 
         <div className="w-full lg:w-80 shrink-0 overflow-y-auto border-t lg:border-t-0 lg:border-l border-navy/10 bg-white max-h-[45%] lg:max-h-none">
