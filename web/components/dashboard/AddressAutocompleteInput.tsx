@@ -1,10 +1,9 @@
 'use client';
 
 import { useCallback, useRef, useState } from 'react';
-import { useGoogleMapsLoaded } from '@/lib/google-maps';
+import { mapboxSuggest, type GeoSuggestion } from '@/lib/mapbox-geocode';
 
 type Coords = { lat: number; lng: number };
-type Suggestion = { text: string; suggestion: any };
 
 type Props = {
   value: string;
@@ -14,33 +13,23 @@ type Props = {
   disabled?: boolean;
 };
 
-// Address input backed by the new Places Autocomplete API — no shadow-DOM
-// widget, so it can be styled to match the rest of the form. Coordinates are
-// captured as soon as a suggestion is picked, so the address is map-verified
-// from the moment it's entered rather than relying on a later geocode pass.
+// Address input backed by the Mapbox Geocoding API (autocomplete, Nigeria,
+// Lagos-biased). Coordinates ride along with each suggestion, so the address is
+// map-verified the moment it's picked — no later geocode pass, and it matches
+// what the edge functions would resolve server-side.
 export function AddressAutocompleteInput({ value, onChange, placeholder = 'Pickup address', className, disabled }: Props) {
-  const mapsLoaded = useGoogleMapsLoaded();
-  const [suggestions, setSuggestions] = useState<Suggestion[]>([]);
+  const [suggestions, setSuggestions] = useState<GeoSuggestion[]>([]);
   const [showSuggestions, setShowSuggestions] = useState(false);
-  const sessionRef = useRef<any>(null);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const abortRef = useRef<AbortController | null>(null);
 
   const fetchSuggestions = useCallback(async (input: string) => {
-    if (!input.trim() || input.length < 3 || !mapsLoaded) { setSuggestions([]); return; }
-    try {
-      const g = (window as any).google;
-      if (!sessionRef.current) sessionRef.current = new g.maps.places.AutocompleteSessionToken();
-      const { suggestions: sugs } = await g.maps.places.AutocompleteSuggestion.fetchAutocompleteSuggestions({
-        input,
-        sessionToken: sessionRef.current,
-        includedRegionCodes: ['ng'],
-        language: 'en',
-      });
-      setSuggestions((sugs as any[]).map((s: any) => ({ text: s.placePrediction.text.toString(), suggestion: s })));
-    } catch {
-      setSuggestions([]);
-    }
-  }, [mapsLoaded]);
+    abortRef.current?.abort();
+    const controller = new AbortController();
+    abortRef.current = controller;
+    const results = await mapboxSuggest(input, controller.signal);
+    if (!controller.signal.aborted) setSuggestions(results);
+  }, []);
 
   function handleInputChange(val: string) {
     onChange(val, null);
@@ -54,17 +43,10 @@ export function AddressAutocompleteInput({ value, onChange, placeholder = 'Picku
     }
   }
 
-  async function selectSuggestion(item: Suggestion) {
+  function selectSuggestion(item: GeoSuggestion) {
     setShowSuggestions(false);
     setSuggestions([]);
-    sessionRef.current = null;
-    let coords: Coords | null = null;
-    try {
-      const place = item.suggestion.placePrediction.toPlace();
-      await place.fetchFields({ fields: ['location'] });
-      if (place.location) coords = { lat: place.location.lat(), lng: place.location.lng() };
-    } catch { /* ignore */ }
-    onChange(item.text, coords);
+    onChange(item.placeName, { lat: item.lat, lng: item.lng });
   }
 
   return (
@@ -89,7 +71,7 @@ export function AddressAutocompleteInput({ value, onChange, placeholder = 'Picku
                 onMouseDown={() => selectSuggestion(item)}
                 className="w-full text-left px-3 py-2.5 text-sm text-ink hover:bg-canvas transition-colors duration-100 truncate"
               >
-                {item.text}
+                {item.placeName}
               </button>
             </li>
           ))}
