@@ -351,39 +351,53 @@ Deno.serve(async (req: Request) => {
   // "approaching" push, which for a stop near the start of the route can be
   // only a minute or two of warning.
   try {
+    const recipientIds = new Set<string>();
+
+    // The school should know the bus started moving, not just the parents.
+    const { data: admins } = await serviceSupabase
+      .from('profiles')
+      .select('id')
+      .eq('school_id', profile.school_id)
+      .eq('role', 'SCHOOL_ADMIN');
+    for (const a of (admins ?? []) as Array<{ id: string }>) {
+      recipientIds.add(a.id);
+    }
+
     const studentIds = (students ?? []).map((s) => s.id);
     if (studentIds.length > 0) {
       const { data: parentRows } = await serviceSupabase
         .from('student_parents')
         .select('parent_id')
         .in('student_id', studentIds);
-      const parentIds = Array.from(
-        new Set((parentRows ?? []).map((p: { parent_id: string }) => p.parent_id)),
-      );
+      for (const p of (parentRows ?? []) as Array<{ parent_id: string }>) {
+        recipientIds.add(p.parent_id);
+      }
+    }
 
-      if (parentIds.length > 0) {
-        const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
-        const serviceRoleKey = JSON.parse(Deno.env.get('SUPABASE_SECRET_KEYS')!)['default'];
-        const internalSecret = Deno.env.get('INTERNAL_FUNCTION_SECRET')!;
+    if (recipientIds.size > 0) {
+      const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
+      const serviceRoleKey = JSON.parse(Deno.env.get('SUPABASE_SECRET_KEYS')!)['default'];
+      const internalSecret = Deno.env.get('INTERNAL_FUNCTION_SECRET')!;
 
-        const pushResp = await fetch(`${supabaseUrl}/functions/v1/send-push`, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'apikey': serviceRoleKey,
-            'X-Internal-Secret': internalSecret,
-          },
-          body: JSON.stringify({
-            userIds: parentIds,
-            title: '\u{1F68C} Bus is on the way',
-            body: `${route.name} has started its run — track it live in the app.`,
-            data: { type: 'trip-started', tripId: trip.id, routeId: trip.route_id },
-            channelId: 'trip-updates',
-          }),
-        });
-        if (!pushResp.ok) {
-          console.error(`[start-trip] trip-started send-push returned ${pushResp.status}`);
-        }
+      const runLabel =
+        direction === 'MORNING' ? 'morning pickup run' : 'afternoon drop-off run';
+      const pushResp = await fetch(`${supabaseUrl}/functions/v1/send-push`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'apikey': serviceRoleKey,
+          'X-Internal-Secret': internalSecret,
+        },
+        body: JSON.stringify({
+          userIds: [...recipientIds],
+          title: '\u{1F68C} Bus is on the way',
+          body: `${route.name} has started its ${runLabel} — track it live in the app.`,
+          data: { type: 'trip-started', tripId: trip.id, routeId: trip.route_id },
+          channelId: 'trip-updates',
+        }),
+      });
+      if (!pushResp.ok) {
+        console.error(`[start-trip] trip-started send-push returned ${pushResp.status}`);
       }
     }
   } catch (err) {

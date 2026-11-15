@@ -112,6 +112,7 @@ export function AttendanceMap({
       pitchEnabled={false}
       attributionEnabled={false}
       logoEnabled={false}
+      scaleBarEnabled={false}
     >
       <Camera
         ref={cameraRef}

@@ -17,10 +17,12 @@ import { supabase } from '../../lib/supabase';
 import {
   AlertDiamondIcon,
   BusFrontIcon,
+  CheckIcon,
   PinIcon,
   RouteIcon,
   UsersIcon,
 } from './components/Icons';
+import { AnimatedSplash } from './components/AnimatedSplash';
 import { ConfirmDialog } from './components/ConfirmDialog';
 import type { DriverStackParamList } from './DriverApp';
 import { startGPSBroadcast } from './gpsService';
@@ -58,6 +60,10 @@ type LoadedState = {
   // Students on this run with no saved pickup position — the only time the
   // driver needs to (re)arrange the order.
   unarrangedCount: number;
+  // Runs already finished today — once a run is done, the dashboard must not
+  // offer to start that same journey again.
+  morningDoneToday: boolean;
+  afternoonDoneToday: boolean;
   activeTrip: {
     id: string;
     stops: Stop[];
@@ -73,10 +79,6 @@ export default function TodayScreen({ navigation }: Props) {
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [state, setState] = useState<LoadedState | null>(null);
   const [isStarting, setIsStarting] = useState(false);
-  // The driver's explicit run choice on a BOTH route. The clock only picks
-  // the DEFAULT — drop-off mode never appears unless the driver has actually
-  // selected (or started) the afternoon run.
-  const [selectedDirection, setSelectedDirection] = useState<'MORNING' | 'AFTERNOON' | null>(null);
 
   const loadData = useCallback(async () => {
     setIsLoading(true);
@@ -145,12 +147,12 @@ export default function TodayScreen({ navigation }: Props) {
         routes[0];
 
       // One run at a time: a dedicated route is always its own direction; a
-      // BOTH route uses the driver's explicit choice, with the clock only
-      // supplying the default.
+      // BOTH route follows the clock automatically — no manual override, so
+      // drop-off mode never appears until it's actually afternoon.
       const runDirection: 'MORNING' | 'AFTERNOON' =
         route.type === 'MORNING' || route.type === 'AFTERNOON'
           ? route.type
-          : selectedDirection ?? preferredType;
+          : preferredType;
 
       // Only count students riding THIS journey.
       const { count: studentCount } = await supabase
@@ -175,6 +177,31 @@ export default function TodayScreen({ navigation }: Props) {
         .eq('is_active', true)
         .in('trip_type', [runDirection, 'BOTH'])
         .is('pickup_sequence', null);
+
+      // Which runs already finished today. trips.direction can be null on
+      // older rows, so fall back to the start hour — same rule used below to
+      // derive an active trip's direction.
+      const todayStart = new Date();
+      todayStart.setHours(0, 0, 0, 0);
+      const { data: completedTrips } = await supabase
+        .from('trips')
+        .select('direction, started_at')
+        .eq('bus_id', bus.id)
+        .eq('status', 'COMPLETED')
+        .gte('started_at', todayStart.toISOString());
+
+      let morningDoneToday = false;
+      let afternoonDoneToday = false;
+      for (const t of completedTrips ?? []) {
+        const dir =
+          t.direction === 'MORNING' || t.direction === 'AFTERNOON'
+            ? t.direction
+            : new Date(t.started_at).getHours() < 12
+              ? 'MORNING'
+              : 'AFTERNOON';
+        if (dir === 'MORNING') morningDoneToday = true;
+        else afternoonDoneToday = true;
+      }
 
       const { data: existingTrip, error: tripError } = await supabase
         .from('trips')
@@ -263,6 +290,8 @@ export default function TodayScreen({ navigation }: Props) {
         studentCount: studentCount ?? 0,
         stopCount: stopCount ?? 0,
         unarrangedCount: unarrangedCount ?? 0,
+        morningDoneToday,
+        afternoonDoneToday,
         activeTrip,
       });
     } catch {
@@ -270,7 +299,7 @@ export default function TodayScreen({ navigation }: Props) {
     } finally {
       setIsLoading(false);
     }
-  }, [selectedDirection]);
+  }, []);
 
   useEffect(() => {
     loadData();
@@ -406,12 +435,11 @@ export default function TodayScreen({ navigation }: Props) {
     }
   }
 
+  // The animated splash carries through into the dashboard's own data load —
+  // switching to a bare spinner on a light background here read as the splash
+  // abruptly vanishing into a blank screen instead of one continuous launch.
   if (isLoading) {
-    return (
-      <SafeAreaView style={styles.center}>
-        <ActivityIndicator size="large" color={color.danfoDim} />
-      </SafeAreaView>
-    );
+    return <AnimatedSplash />;
   }
 
   if (errorMessage || !state) {
@@ -437,9 +465,21 @@ export default function TodayScreen({ navigation }: Props) {
   const hour = new Date().getHours();
   const greeting = hour < 12 ? 'Good morning' : hour < 17 ? 'Good afternoon' : 'Good evening';
   const firstName = state.driverName ? getFirstName(state.driverName) : undefined;
-  const ctaLabel = state.activeTrip ? 'RESUME ROUTE' : `START ${state.runDirection} ROUTE`;
+  const ctaLabel = state.activeTrip ? 'RESUME ROUTE' : 'START';
   const onCta = state.activeTrip ? handleResumeTrip : handleStartTrip;
   const schoolInitial = (state.schoolName ?? 'B').trim()[0]?.toUpperCase() ?? 'B';
+
+  // Once today's run has finished, the dashboard closes: no run info and no
+  // START, so the same journey can't be started twice. A BOTH route re-opens
+  // by itself when the clock flips to the afternoon leg; anything else waits
+  // for tomorrow morning.
+  const runDone =
+    !state.activeTrip &&
+    (state.runDirection === 'MORNING'
+      ? state.morningDoneToday
+      : state.afternoonDoneToday);
+  const waitingForAfternoon =
+    runDone && state.runDirection === 'MORNING' && state.routeType === 'BOTH';
 
   return (
     <View style={styles.container}>
@@ -462,16 +502,74 @@ export default function TodayScreen({ navigation }: Props) {
               Bus<Text style={styles.wordmarkAccent}>Buzz</Text>
             </Text>
           </View>
-          <Pressable
-            style={({ pressed }) => [styles.sosDiamond, pressed && styles.pressed]}
-            onPress={() => setShowSosConfirm(true)}
-            accessibilityLabel="Send SOS alert"
-          >
-            <AlertDiamondIcon size={22} color={color.stopRed} />
-          </Pressable>
+          <View style={styles.headerActions}>
+            {!state.activeTrip && (
+              <Pressable
+                style={({ pressed }) => [styles.pickupOrderButton, pressed && styles.pressed]}
+                onPress={() =>
+                  navigation.navigate('PickupOrder', {
+                    routeId: state.routeId,
+                    routeName: state.routeName,
+                    routeType: state.routeType,
+                  })
+                }
+                accessibilityRole="button"
+                accessibilityLabel={
+                  // Matches PickupOrderScreen's own isDropoffOrder check
+                  // (routeType === 'AFTERNOON'), not the current leg
+                  // (runDirection) — see PickupOrderScreen's header comment.
+                  state.routeType === 'AFTERNOON'
+                    ? 'Arrange drop-off order'
+                    : 'Arrange pickup order'
+                }
+              >
+                {/* Amber, not ink — ink on the navy header made the icon
+                    near-invisible. */}
+                <RouteIcon size={20} color={color.danfo} />
+                {state.unarrangedCount > 0 && (
+                  <View style={styles.pickupOrderBadge}>
+                    <Text style={styles.pickupOrderBadgeText}>
+                      {state.unarrangedCount > 9 ? '9+' : state.unarrangedCount}
+                    </Text>
+                  </View>
+                )}
+              </Pressable>
+            )}
+            <Pressable
+              style={({ pressed }) => [styles.sosDiamond, pressed && styles.pressed]}
+              onPress={() => setShowSosConfirm(true)}
+              accessibilityLabel="Send SOS alert"
+            >
+              <AlertDiamondIcon size={22} color={color.stopRed} />
+            </Pressable>
+          </View>
         </View>
       </SafeAreaView>
 
+      {runDone ? (
+        <View style={styles.doneWrap}>
+          <View style={styles.doneCard}>
+            <View style={styles.doneBadge}>
+              <CheckIcon size={30} color={color.routeGreen} />
+            </View>
+            <Text style={styles.doneEyebrow}>
+              {state.runDirection === 'MORNING'
+                ? 'Morning run complete'
+                : 'Afternoon run complete'}
+            </Text>
+            <Text style={styles.doneTitle}>
+              {state.runDirection === 'MORNING'
+                ? 'Students are in school'
+                : 'All students dropped home'}
+            </Text>
+            <Text style={styles.doneText}>
+              {waitingForAfternoon
+                ? 'Not yet afternoon — the drop-off run opens after 12:00.'
+                : 'Nothing more to drive today. See you tomorrow morning.'}
+            </Text>
+          </View>
+        </View>
+      ) : (
       <ScrollView contentContainerStyle={styles.body} showsVerticalScrollIndicator={false}>
         <Text style={styles.greetingEyebrow}>
           {greeting}
@@ -481,8 +579,9 @@ export default function TodayScreen({ navigation }: Props) {
           {state.activeTrip ? 'Trip in progress' : 'Ready to roll?'}
         </Text>
 
-        {/* Which run — only a BOTH route offers both. Nothing about the
-            drop-off run appears anywhere unless it's selected here. */}
+        {/* Which run — only a BOTH route has two. Purely informational: the
+            clock decides automatically, so there's nothing to tap. Drop-off
+            mode never appears anywhere until it's actually afternoon. */}
         {!state.activeTrip && state.routeType === 'BOTH' ? (
           <View style={styles.runSwitch}>
             {(
@@ -493,12 +592,9 @@ export default function TodayScreen({ navigation }: Props) {
             ).map(({ dir, label, sub }) => {
               const active = state.runDirection === dir;
               return (
-                <Pressable
+                <View
                   key={dir}
-                  onPress={() => setSelectedDirection(dir)}
-                  accessibilityRole="button"
-                  accessibilityState={{ selected: active }}
-                  accessibilityLabel={`${label} run — ${sub}`}
+                  accessibilityLabel={`${label} run — ${sub}${active ? ', active now' : ''}`}
                   style={[styles.runSwitchItem, active && styles.runSwitchItemActive]}
                 >
                   <Text style={[styles.runSwitchLabel, active && styles.runSwitchLabelActive]}>
@@ -507,7 +603,7 @@ export default function TodayScreen({ navigation }: Props) {
                   <Text style={[styles.runSwitchSub, active && styles.runSwitchSubActive]}>
                     {sub}
                   </Text>
-                </Pressable>
+                </View>
               );
             })}
           </View>
@@ -567,63 +663,8 @@ export default function TodayScreen({ navigation }: Props) {
           </View>
           <View style={styles.readyDot} />
         </View>
-
-        {/* Pickup order — arranged ONCE and remembered (pickup_sequence).
-            Only demands attention when a new student has joined the route
-            and has no position yet; otherwise it's a quiet edit entry. */}
-        {!state.activeTrip && (
-          <Pressable
-            style={({ pressed }) => [
-              styles.locCard,
-              state.unarrangedCount > 0 && styles.locCardAttention,
-              pressed && styles.pressed,
-            ]}
-            onPress={() =>
-              navigation.navigate('PickupOrder', {
-                routeId: state.routeId,
-                routeName: state.routeName,
-                routeType: state.routeType,
-              })
-            }
-            accessibilityRole="button"
-            accessibilityLabel={
-              // Matches PickupOrderScreen's own isDropoffOrder check
-              // (routeType === 'AFTERNOON'), not the current leg
-              // (runDirection) — a BOTH route only ever has one saved
-              // sequence, always framed as "the pickup order" and
-              // auto-reversed for its afternoon leg (see PickupOrderScreen's
-              // header comment), so this card used to promise "Drop-off
-              // order" for a BOTH route's afternoon run and then land on a
-              // screen titled "PICKUP ORDER."
-              state.routeType === 'AFTERNOON'
-                ? 'Arrange drop-off order'
-                : 'Arrange pickup order'
-            }
-          >
-            <View style={styles.locIcon}>
-              <RouteIcon size={20} color={color.ink} />
-            </View>
-            <View style={styles.locMeta}>
-              <Text style={styles.locLabel}>
-                {state.routeType === 'AFTERNOON' ? 'Drop-off order' : 'Pickup order'}
-              </Text>
-              {state.unarrangedCount > 0 ? (
-                <Text style={styles.locValueAttention}>
-                  {state.unarrangedCount} new student{state.unarrangedCount === 1 ? '' : 's'} to place
-                </Text>
-              ) : (
-                <Text style={styles.locValue}>Saved — tap to change</Text>
-              )}
-            </View>
-            {state.unarrangedCount > 0 ? (
-              <View style={styles.attentionBadge}>
-                <Text style={styles.attentionBadgeText}>{state.unarrangedCount}</Text>
-              </View>
-            ) : null}
-            <Text style={styles.cardChevron}>›</Text>
-          </Pressable>
-        )}
       </ScrollView>
+      )}
     </View>
   );
 }
@@ -634,12 +675,6 @@ const HALO_SIZE = 296;
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: color.canvas,
-  },
-  center: {
-    flex: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
     backgroundColor: color.canvas,
   },
   // Header
@@ -683,6 +718,11 @@ const styles = StyleSheet.create({
   wordmarkAccent: {
     color: color.danfo,
   },
+  headerActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: space.sm,
+  },
   sosDiamond: {
     width: 44,
     height: 44,
@@ -690,6 +730,36 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(225,62,45,0.14)',
     alignItems: 'center',
     justifyContent: 'center',
+  },
+  // Pickup/drop-off order — was a full-width dashboard card, now a header
+  // icon beside SOS (same pale-tint circular treatment, amber instead of
+  // red so it reads as routine rather than an alert).
+  pickupOrderButton: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: 'rgba(255,201,0,0.22)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  pickupOrderBadge: {
+    position: 'absolute',
+    top: -4,
+    right: -4,
+    minWidth: 20,
+    height: 20,
+    borderRadius: 10,
+    paddingHorizontal: 5,
+    backgroundColor: color.danfo,
+    borderWidth: 2,
+    borderColor: color.ink,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  pickupOrderBadgeText: {
+    fontSize: 11,
+    fontWeight: '800',
+    color: color.ink,
   },
   // Body
   body: {
@@ -887,37 +957,56 @@ const styles = StyleSheet.create({
     borderRadius: 5,
     backgroundColor: color.routeGreen,
   },
-  locCardAttention: {
-    borderWidth: 2,
-    borderColor: color.danfo,
-  },
-  locValueAttention: {
-    fontSize: 16,
-    fontWeight: '800',
-    color: color.danfoDim,
-    letterSpacing: 0.5,
-    marginTop: 2,
-  },
-  attentionBadge: {
-    minWidth: 26,
-    height: 26,
-    borderRadius: 13,
-    paddingHorizontal: 7,
-    backgroundColor: color.danfo,
+  // Run-done state — replaces the whole dashboard body once today's journey
+  // is finished, so there's nothing left to tap by mistake.
+  doneWrap: {
+    flex: 1,
     alignItems: 'center',
     justifyContent: 'center',
+    padding: space.xxl,
   },
-  attentionBadgeText: {
+  doneCard: {
+    width: '100%',
+    maxWidth: 360,
+    backgroundColor: color.surface,
+    borderRadius: radius.lg + 6,
+    padding: space.xxl + 4,
+    alignItems: 'center',
+    shadowColor: '#000',
+    shadowOpacity: 0.08,
+    shadowOffset: { width: 0, height: 4 },
+    shadowRadius: 12,
+    elevation: 3,
+  },
+  doneBadge: {
+    width: 64,
+    height: 64,
+    borderRadius: 32,
+    backgroundColor: color.routeGreenBg,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: space.lg,
+  },
+  doneEyebrow: {
     fontSize: 13,
+    fontWeight: '700',
+    letterSpacing: 1.5,
+    textTransform: 'uppercase',
+    color: color.routeGreen,
+    marginBottom: space.xs + 2,
+  },
+  doneTitle: {
+    fontSize: 20,
     fontWeight: '800',
     color: color.ink,
+    textAlign: 'center',
+    marginBottom: space.sm,
   },
-  cardChevron: {
-    fontSize: 28,
-    lineHeight: 30,
-    fontWeight: '600',
+  doneText: {
+    fontSize: 14,
     color: color.sub,
-    marginLeft: space.sm,
+    textAlign: 'center',
+    lineHeight: 20,
   },
   // Error state
   errorScreen: {

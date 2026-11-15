@@ -140,6 +140,13 @@ export default function DriverApp() {
         await AsyncStorage.removeItem(ACCESS_TOKEN_KEY);
       } else if (session?.access_token) {
         await AsyncStorage.setItem(ACCESS_TOKEN_KEY, session.access_token);
+        // A fresh PIN login lands here (init() above only covers a session
+        // restored at cold start) — without this, a driver who logs in and
+        // never restarts the app has no push token registered at all, so
+        // absence reports never reach them.
+        if (event === 'SIGNED_IN') {
+          registerForPushNotifications(session.access_token);
+        }
       }
     });
 

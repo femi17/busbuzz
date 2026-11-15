@@ -234,6 +234,14 @@ export default function HomeScreen() {
   const [busInfo, setBusInfo] = useState<BusInfo | null>(null);
   const [routeType, setRouteType] = useState<RouteType>(null);
 
+  // Today's already-finished run, if any — after the morning run completes
+  // the child is IN SCHOOL, and the card should say so instead of falling
+  // back to the pre-trip "not started" look.
+  const [completedRun, setCompletedRun] = useState<{
+    direction: 'MORNING' | 'AFTERNOON';
+    attendance: 'BOARDED' | 'ABSENT' | 'DROPPED_OFF' | null;
+  } | null>(null);
+
   const [childColors, setChildColors] = useState<Record<string, string>>({});
 
   // "Not going today" — parent-reported absence for the selected child.
@@ -667,6 +675,7 @@ export default function HomeScreen() {
     setStop(null);
     setTrip(null);
     setAttendance(null);
+    setCompletedRun(null);
     setBusPosition(null);
     setBusSpeed(null);
     setBusUpdatedAt(null);
@@ -748,6 +757,49 @@ export default function HomeScreen() {
       setReachedStops((prev) => ({ ...reachedFromHistory, ...prev }));
     }
 
+    // When no trip is live, look for today's most recent finished run — it
+    // tells us where the child is right now (in school after the morning
+    // run, home after the afternoon one).
+    async function checkCompletedRun() {
+      const todayStart = new Date();
+      todayStart.setHours(0, 0, 0, 0);
+
+      const { data: doneTrip } = await supabase
+        .from('trips')
+        .select('id, direction, started_at')
+        .eq('route_id', selectedStudent!.routeId!)
+        .eq('status', 'COMPLETED')
+        .gte('started_at', todayStart.toISOString())
+        .order('started_at', { ascending: false })
+        .limit(1)
+        .maybeSingle();
+
+      if (!isMounted) return;
+
+      if (!doneTrip) {
+        setCompletedRun(null);
+        return;
+      }
+
+      // Older trips may have no direction — fall back to the start hour.
+      const direction: 'MORNING' | 'AFTERNOON' =
+        doneTrip.direction === 'MORNING' || doneTrip.direction === 'AFTERNOON'
+          ? doneTrip.direction
+          : new Date(doneTrip.started_at).getHours() < 12
+            ? 'MORNING'
+            : 'AFTERNOON';
+
+      const { data: att } = await supabase
+        .from('attendance')
+        .select('status')
+        .eq('trip_id', doneTrip.id)
+        .eq('student_id', selectedStudent!.id)
+        .maybeSingle();
+
+      if (!isMounted) return;
+      setCompletedRun({ direction, attendance: att?.status ?? null });
+    }
+
     async function checkForActiveTrip() {
       if (!selectedStudent!.routeId) return;
 
@@ -762,8 +814,11 @@ export default function HomeScreen() {
 
       if (!tripData) {
         clearTripState();
+        await checkCompletedRun();
         return;
       }
+
+      setCompletedRun(null);
 
       const loadedTrip: TripInfo = {
         id: tripData.id,
@@ -899,9 +954,11 @@ export default function HomeScreen() {
         .on('broadcast', { event: 'trip_ended' }, (msg) => {
           const payload = msg.payload as { tripId: string };
           // Clear immediately instead of waiting up to 30s for the next
-          // poll to notice the trip is gone.
+          // poll to notice the trip is gone — and pick up the finished run
+          // so the card flips straight to "In school" / "Home".
           if (isMounted && payload.tripId === currentTripIdRef.current) {
             clearTripState();
+            checkCompletedRun();
           }
         })
         .subscribe();
@@ -1064,20 +1121,43 @@ export default function HomeScreen() {
   const nextStopText = trip ? nextRouteStop?.name ?? myStopName ?? '—' : myStopName ?? '—';
   const nextStopLabel = trip ? 'Next stop' : 'Your stop';
 
+  // Where the child is after a finished run: in school once the morning run
+  // completes, home after the afternoon one. Suppressed when the child was
+  // marked absent — they never rode the bus.
+  const childInSchool =
+    !trip &&
+    completedRun?.direction === 'MORNING' &&
+    completedRun.attendance !== 'ABSENT' &&
+    !absentToday;
+  const childAtHome = !trip && completedRun?.direction === 'AFTERNOON';
+
   // ETA shown in the card's right column — a live m:ss countdown to the
   // child's stop (or the school once they've boarded). Falls back to the
   // stop's scheduled ride time (e.g. before the first GPS ping arrives) so
-  // the column is never blank.
+  // the column is never blank — except after a finished run, when there's
+  // nothing to wait for.
   let etaText = '—';
-  if (isArriving) etaText = 'Now';
+  if (childInSchool || childAtHome) etaText = '—';
+  else if (isArriving) etaText = 'Now';
   else if (countdownSeconds !== null) etaText = formatCountdown(countdownSeconds);
   else if (stop?.etaMinutes != null) etaText = `~${stop.etaMinutes} min`;
   else if (trip) etaText = 'En route';
 
-  // Live status sits under the ETA. Only while a trip is running — before that
-  // there's deliberately no "not started" label.
-  const statusLabel = trip ? chip.label : null;
-  const statusColor = trip ? chip.dot : color.ledger400;
+  // Live status sits under the ETA. While no trip is running the only label
+  // is the after-run one ("In school" / "Home") — deliberately no "not
+  // started" chatter before the first run.
+  const statusLabel = trip
+    ? chip.label
+    : childInSchool
+      ? 'In school'
+      : childAtHome
+        ? 'Home'
+        : null;
+  const statusColor = trip
+    ? chip.dot
+    : childInSchool || childAtHome
+      ? color.routeGreen
+      : color.ledger400;
 
   // Drive the card's expand motion from the single `expand` value.
   const timelineMaxHeight = expand.interpolate({ inputRange: [0, 1], outputRange: [0, 300] });

@@ -14,10 +14,12 @@ import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context'
 
 import Constants from 'expo-constants';
 import * as Location from 'expo-location';
+import { StatusBar } from 'expo-status-bar';
 
 import {
   bearingDegrees,
   bearingDiff,
+  estimateETA,
   haversineDistance,
 } from '../../../../shared/geo';
 import type { AttendanceStatus } from '../../../../shared/types';
@@ -95,9 +97,21 @@ function getInitials(name: string): string {
   return (first + last).toUpperCase();
 }
 
-function formatDistance(meters: number): string {
-  if (meters < 950) return `${Math.round(meters / 10) * 10} m`;
-  return `${(meters / 1000).toFixed(1)} km`;
+// A driver rolling toward a stop wants "how long", not "how far" — ETA in
+// minutes reads faster at a glance than a raw distance. Falls back to a
+// typical Lagos street-driving speed while the bus is stopped/idling (a red
+// light or a pause mid-drop shouldn't make the readout disappear), and only
+// gives up entirely once there's truly no distance to work with.
+const FALLBACK_SPEED_KMH = 20;
+const MOVING_SPEED_THRESHOLD_MS = 1.5;
+
+function formatEta(meters: number, speedMs: number | null): string {
+  const speedKmh =
+    speedMs != null && speedMs > MOVING_SPEED_THRESHOLD_MS ? speedMs * 3.6 : FALLBACK_SPEED_KMH;
+  const seconds = estimateETA(meters, speedKmh);
+  if (!Number.isFinite(seconds)) return '—';
+  const minutes = Math.max(1, Math.round(seconds / 60));
+  return `${minutes} min`;
 }
 
 export default function AttendanceScreen({ navigation, route }: Props) {
@@ -128,6 +142,8 @@ export default function AttendanceScreen({ navigation, route }: Props) {
   // The bus = this phone. A foreground watcher keeps the marker moving while
   // the screen is open (the background broadcaster serves the parents).
   const [busPosition, setBusPosition] = useState<{ lat: number; lng: number } | null>(null);
+  // Latest GPS speed in m/s — drives the ETA readout below.
+  const [busSpeed, setBusSpeed] = useState<number | null>(null);
   // Direction of travel (degrees from north) — from the GPS fix while the
   // bus is actually moving; stale headings from a parked bus are ignored.
   const [heading, setHeading] = useState<number | null>(null);
@@ -245,6 +261,7 @@ export default function AttendanceScreen({ navigation, route }: Props) {
       setBusPosition({ lat: pos.coords.latitude, lng: pos.coords.longitude });
       const h = pos.coords.heading;
       const speed = pos.coords.speed ?? 0;
+      setBusSpeed(speed);
       // Heading is only meaningful while moving — a parked bus reports noise.
       if (h != null && h >= 0 && speed > 1.5) setHeading(h);
     };
@@ -672,6 +689,9 @@ export default function AttendanceScreen({ navigation, route }: Props) {
 
   return (
     <View style={styles.container}>
+      {/* Dark icons — the fullscreen map behind this screen is light-styled
+          (StyleURL.Street), unlike the ink-navy header elsewhere in the app. */}
+      <StatusBar style="dark" />
       <ConfirmDialog
         visible={showSosConfirm}
         title="Send SOS?"
@@ -727,7 +747,7 @@ export default function AttendanceScreen({ navigation, route }: Props) {
           <View style={styles.distanceRow}>
             <View style={styles.distanceDot} />
             <Text style={styles.distanceText}>
-              {formatDistance(distanceToStop)} to {currentStop?.name}
+              {formatEta(distanceToStop, busSpeed)} to {currentStop?.name}
             </Text>
           </View>
         )}
@@ -801,39 +821,41 @@ export default function AttendanceScreen({ navigation, route }: Props) {
               </View>
             </View>
 
-            <Pressable
-              style={({ pressed }) => [styles.activePrimary, pressed && styles.pressed]}
-              onPress={() =>
-                markStudent(activeStudent.id, isBoardStop ? 'BOARDED' : 'DROPPED_OFF')
-              }
-              disabled={!!isSubmitting[activeStudent.id]}
-              accessibilityRole="button"
-              accessibilityLabel={`Mark ${activeStudent.name} ${isBoardStop ? 'boarded' : 'dropped off'}`}
-            >
-              {isSubmitting[activeStudent.id] ? (
-                <ActivityIndicator color={color.white} />
-              ) : (
-                <>
-                  <CheckIcon size={20} color={color.white} />
-                  <Text style={styles.activePrimaryText}>
-                    {isBoardStop ? 'BOARDED' : 'DROPPED OFF'}
-                  </Text>
-                </>
-              )}
-            </Pressable>
-            {/* A student already on the bus can't be absent — only offer it
-                while they still haven't boarded. */}
-            {attendanceMap[activeStudent.id] !== 'BOARDED' && (
+            <View style={styles.activeButtonRow}>
               <Pressable
-                style={({ pressed }) => [styles.activeSecondary, pressed && styles.pressed]}
-                onPress={() => markStudent(activeStudent.id, 'ABSENT')}
+                style={({ pressed }) => [styles.activePrimary, pressed && styles.pressed]}
+                onPress={() =>
+                  markStudent(activeStudent.id, isBoardStop ? 'BOARDED' : 'DROPPED_OFF')
+                }
                 disabled={!!isSubmitting[activeStudent.id]}
                 accessibilityRole="button"
-                accessibilityLabel={`Mark ${activeStudent.name} absent`}
+                accessibilityLabel={`Mark ${activeStudent.name} ${isBoardStop ? 'boarded' : 'dropped off'}`}
               >
-                <Text style={styles.activeSecondaryText}>ABSENT</Text>
+                {isSubmitting[activeStudent.id] ? (
+                  <ActivityIndicator color={color.white} />
+                ) : (
+                  <>
+                    <CheckIcon size={18} color={color.white} />
+                    <Text style={styles.activePrimaryText} numberOfLines={1}>
+                      {isBoardStop ? 'BOARDED' : 'DROPPED OFF'}
+                    </Text>
+                  </>
+                )}
               </Pressable>
-            )}
+              {/* A student already on the bus can't be absent — only offer it
+                  while they still haven't boarded. */}
+              {attendanceMap[activeStudent.id] !== 'BOARDED' && (
+                <Pressable
+                  style={({ pressed }) => [styles.activeSecondary, pressed && styles.pressed]}
+                  onPress={() => markStudent(activeStudent.id, 'ABSENT')}
+                  disabled={!!isSubmitting[activeStudent.id]}
+                  accessibilityRole="button"
+                  accessibilityLabel={`Mark ${activeStudent.name} absent`}
+                >
+                  <Text style={styles.activeSecondaryText}>ABSENT</Text>
+                </Pressable>
+              )}
+            </View>
           </>
         ) : null}
 
@@ -854,6 +876,17 @@ export default function AttendanceScreen({ navigation, route }: Props) {
               {isMorningSchoolWait && !nearSchool ? 'ARRIVING…' : 'END TRIP'}
             </Text>
           </Pressable>
+        ) : isSchoolPhase && direction === 'AFTERNOON' ? (
+          // Boarding at school doesn't advance a "next stop" — every street
+          // drop-off stays queued until the bus actually leaves. A stop name
+          // that silently doesn't move while the card advances read as
+          // broken, so this phase shows boarding progress instead.
+          <View style={styles.nextStopPreview}>
+            <Text style={styles.nextStopPreviewLabel}>Boarding</Text>
+            <Text style={styles.nextStopPreviewName} numberOfLines={1}>
+              {markedCount} of {totalAtStop} on board
+            </Text>
+          </View>
         ) : (
           <View style={styles.nextStopPreview}>
             <Text style={styles.nextStopPreviewLabel}>Next stop</Text>
@@ -1176,31 +1209,35 @@ const styles = StyleSheet.create({
     color: color.sub,
     marginTop: 2,
   },
+  activeButtonRow: {
+    flexDirection: 'row',
+    gap: space.sm,
+    marginTop: space.md,
+  },
   activePrimary: {
-    alignSelf: 'stretch',
+    flex: 1,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    gap: space.sm,
+    gap: space.xs,
     backgroundColor: color.routeGreen,
     borderRadius: radius.md,
     paddingVertical: 18,
-    marginTop: space.md,
+    paddingHorizontal: space.xs,
   },
   activePrimaryText: {
     color: color.white,
-    fontSize: 17,
+    fontSize: 15,
     fontWeight: '800',
-    letterSpacing: 0.5,
+    letterSpacing: 0.3,
   },
   activeSecondary: {
-    alignSelf: 'stretch',
+    flex: 1,
     alignItems: 'center',
     justifyContent: 'center',
     backgroundColor: color.canvas,
     borderRadius: radius.md,
-    paddingVertical: 16,
-    marginTop: space.sm + 2,
+    paddingVertical: 18,
   },
   activeSecondaryText: {
     color: color.ink,
