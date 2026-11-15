@@ -24,7 +24,7 @@ const hasGoogleServices =
 const config = {
   name: IS_DRIVER ? "BusBuzz Driver" : "BusBuzz",
   slug: IS_DRIVER ? "busbuzz-driver" : "busbuzz-parent",
-  owner: "longbrain",
+  owner: "faceflyer",
   scheme: IS_DRIVER ? "busbuzz-driver" : "busbuzz",
   version: "1.0.0",
   orientation: "portrait",
@@ -80,8 +80,8 @@ const config = {
     appVariant: process.env.APP_VARIANT ?? "parent",
     eas: {
       projectId: IS_DRIVER
-        ? "8a1aa25c-11d8-45cd-a1bf-cfe8ee54c52e"
-        : "fdb02b0b-b99c-4abc-abf3-5ba1bc99fa48",
+        ? "5e9837d3-a80b-41a0-b8c0-a0f784efc255"
+        : "f9efa898-3fa4-4d33-bfd1-4dca0a60db09",
     },
   },
   // Only the parent app renders a map — @rnmapbox/maps needs a native build
