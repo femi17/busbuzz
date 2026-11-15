@@ -9,7 +9,6 @@
     "lint": "eslint"
   },
   "dependencies": {
-    "@googlemaps/js-api-loader": "^2.1.1",
     "@radix-ui/react-dialog": "^1.1.18",
     "@radix-ui/react-dropdown-menu": "^2.1.19",
     "@radix-ui/react-tooltip": "^1.2.11",
@@ -28,7 +27,6 @@
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4",
-    "@types/google.maps": "^3.65.2",
     "@types/node": "^20",
     "@types/react": "^19",
     "@types/react-dom": "^19",
