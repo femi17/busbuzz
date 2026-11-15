@@ -1,8 +1,9 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import type { Map as MapboxMap, Marker } from "mapbox-gl";
-import "mapbox-gl/dist/mapbox-gl.css";
+import type { Map as MapLibreMap, Marker } from "maplibre-gl";
+import "maplibre-gl/dist/maplibre-gl.css";
+import { OSM_STYLE } from "../../lib/osm";
 import styles from "../track.module.css";
 
 type LngLat = [number, number];
@@ -11,11 +12,11 @@ const LAGOS: LngLat = [3.3792, 6.5244];
 const BREADCRUMB_SOURCE = "trip-breadcrumb";
 
 /**
- * Live bus map. Renders a real Mapbox GL JS map when
- * NEXT_PUBLIC_MAPBOX_TOKEN is set; otherwise shows the stylised
- * fallback (matching the design mockup) so the screen still reads well.
+ * Live bus map. Renders free OpenStreetMap raster tiles through MapLibre GL —
+ * no token, no per-load cost. The stylised fallback shows until the first
+ * tiles load so the screen never flashes blank.
  *
- * Coordinate order is [lng, lat] — same as the mobile @rnmapbox/maps app.
+ * Coordinate order is [lng, lat] — same as the mobile app.
  * `bus` may start null (trip active but no ping yet); the marker appears
  * and the camera flies to it on the first fix, then eases on later ones.
  */
@@ -32,33 +33,33 @@ export default function LiveMap({
   breadcrumb?: LngLat[];
   updatedAt?: number | null;
 }) {
-  const token = process.env.NEXT_PUBLIC_MAPBOX_TOKEN;
   const containerRef = useRef<HTMLDivElement | null>(null);
-  const mapRef = useRef<MapboxMap | null>(null);
+  const mapRef = useRef<MapLibreMap | null>(null);
   const busMarkerRef = useRef<Marker | null>(null);
   const hasFlownRef = useRef(false);
   const [ready, setReady] = useState(false);
   const [agoText, setAgoText] = useState<string | null>(null);
 
   useEffect(() => {
-    if (!token || !containerRef.current) return;
+    if (!containerRef.current) return;
     let cancelled = false;
 
     (async () => {
-      const mapboxgl = (await import("mapbox-gl")).default;
+      const maplibregl = (await import("maplibre-gl")).default;
       if (cancelled || !containerRef.current) return;
-      mapboxgl.accessToken = token;
-      const map = new mapboxgl.Map({
+      const map = new maplibregl.Map({
         container: containerRef.current,
-        style: "mapbox://styles/mapbox/light-v11",
+        style: OSM_STYLE,
         center: bus ?? destination ?? LAGOS,
         zoom: 13,
         attributionControl: false,
       });
+      // OSM tiles require visible attribution — compact so it stays out of the way.
+      map.addControl(new maplibregl.AttributionControl({ compact: true }), "bottom-right");
       mapRef.current = map;
 
       if (destination) {
-        new mapboxgl.Marker({ color: "#1A1712" }).setLngLat(destination).addTo(map);
+        new maplibregl.Marker({ color: "#1A1712" }).setLngLat(destination).addTo(map);
       }
 
       map.on("load", () => {
@@ -89,7 +90,7 @@ export default function LiveMap({
     // The map instance is created once; live updates flow through the
     // effects below rather than re-instantiating it.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [token]);
+  }, []);
 
   // Move (or create) the bus marker on each GPS fix.
   useEffect(() => {
@@ -98,12 +99,12 @@ export default function LiveMap({
 
     (async () => {
       if (!busMarkerRef.current) {
-        const mapboxgl = (await import("mapbox-gl")).default;
+        const maplibregl = (await import("maplibre-gl")).default;
         if (!mapRef.current) return;
         const el = document.createElement("div");
         el.style.cssText =
           "width:26px;height:26px;border-radius:50%;background:#F4B01A;border:3px solid #fff;box-shadow:0 0 0 6px rgba(244,176,26,.22)";
-        busMarkerRef.current = new mapboxgl.Marker({ element: el }).setLngLat(bus).addTo(map);
+        busMarkerRef.current = new maplibregl.Marker({ element: el }).setLngLat(bus).addTo(map);
       } else {
         busMarkerRef.current.setLngLat(bus);
       }
@@ -123,7 +124,7 @@ export default function LiveMap({
     if (!map || !ready) return;
     const source = map.getSource(BREADCRUMB_SOURCE);
     if (source && "setData" in source) {
-      (source as import("mapbox-gl").GeoJSONSource).setData({
+      (source as import("maplibre-gl").GeoJSONSource).setData({
         type: "Feature",
         properties: {},
         geometry: { type: "LineString", coordinates: breadcrumb },
@@ -148,9 +149,9 @@ export default function LiveMap({
 
   return (
     <div className={styles.map}>
-      {token ? <div ref={containerRef} style={{ position: "absolute", inset: 0 }} /> : null}
+      <div ref={containerRef} style={{ position: "absolute", inset: 0 }} />
 
-      {(!token || !ready) && <FallbackMap />}
+      {!ready && <FallbackMap />}
 
       {speedKmh != null && <div className={styles.speed}>{Math.round(speedKmh)} km/h</div>}
       <div className={styles.maptag}>
@@ -161,7 +162,7 @@ export default function LiveMap({
   );
 }
 
-/** Stylised route render used until a Mapbox token is configured. */
+/** Stylised route render shown until the first OSM tiles load. */
 function FallbackMap() {
   return (
     <svg viewBox="0 0 390 240" preserveAspectRatio="xMidYMid slice" aria-hidden="true">

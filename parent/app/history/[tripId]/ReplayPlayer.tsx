@@ -1,8 +1,9 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import type { GeoJSONSource, Map as MapboxMap, Marker } from "mapbox-gl";
-import "mapbox-gl/dist/mapbox-gl.css";
+import type { GeoJSONSource, Map as MapLibreMap, Marker } from "maplibre-gl";
+import "maplibre-gl/dist/maplibre-gl.css";
+import { OSM_STYLE } from "../../../lib/osm";
 import styles from "./replay.module.css";
 import type { ReplayData } from "./page";
 
@@ -49,9 +50,8 @@ export default function ReplayPlayer({
   data: ReplayData;
   myStopIds: string[];
 }) {
-  const token = process.env.NEXT_PUBLIC_MAPBOX_TOKEN;
   const containerRef = useRef<HTMLDivElement | null>(null);
-  const mapRef = useRef<MapboxMap | null>(null);
+  const mapRef = useRef<MapLibreMap | null>(null);
   const busMarkerRef = useRef<Marker | null>(null);
   const stopElsRef = useRef<Record<string, HTMLElement>>({});
   const [ready, setReady] = useState(false);
@@ -63,19 +63,18 @@ export default function ReplayPlayer({
 
   // ── Map setup (once) ─────────────────────────────────────────────────
   useEffect(() => {
-    if (!token || !containerRef.current || data.points.length === 0) return;
+    if (!containerRef.current || data.points.length === 0) return;
     let cancelled = false;
 
     (async () => {
-      const mapboxgl = (await import("mapbox-gl")).default;
+      const maplibregl = (await import("maplibre-gl")).default;
       if (cancelled || !containerRef.current) return;
-      mapboxgl.accessToken = token;
 
       const lngs = data.points.map((p) => p.lng);
       const lats = data.points.map((p) => p.lat);
-      const map = new mapboxgl.Map({
+      const map = new maplibregl.Map({
         container: containerRef.current,
-        style: "mapbox://styles/mapbox/light-v11",
+        style: OSM_STYLE,
         bounds: [
           [Math.min(...lngs), Math.min(...lats)],
           [Math.max(...lngs), Math.max(...lats)],
@@ -83,6 +82,7 @@ export default function ReplayPlayer({
         fitBoundsOptions: { padding: 44 },
         attributionControl: false,
       });
+      map.addControl(new maplibregl.AttributionControl({ compact: true }), "bottom-right");
       mapRef.current = map;
 
       map.on("load", () => {
@@ -125,12 +125,12 @@ export default function ReplayPlayer({
             : styles.stopDot;
           el.title = stop.name;
           stopElsRef.current[stop.id] = el;
-          new mapboxgl.Marker({ element: el }).setLngLat([stop.lng, stop.lat]).addTo(map);
+          new maplibregl.Marker({ element: el }).setLngLat([stop.lng, stop.lat]).addTo(map);
         }
 
         const busEl = document.createElement("div");
         busEl.className = styles.busDot;
-        busMarkerRef.current = new mapboxgl.Marker({ element: busEl })
+        busMarkerRef.current = new maplibregl.Marker({ element: busEl })
           .setLngLat([data.points[0].lng, data.points[0].lat])
           .addTo(map);
 
@@ -147,7 +147,7 @@ export default function ReplayPlayer({
       setReady(false);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [token]);
+  }, []);
 
   // ── Playback clock ───────────────────────────────────────────────────
   useEffect(() => {
@@ -227,11 +227,7 @@ export default function ReplayPlayer({
   return (
     <>
       <div className={styles.map}>
-        {token ? (
-          <div ref={containerRef} style={{ position: "absolute", inset: 0 }} />
-        ) : (
-          <div className={styles.noToken}>Map unavailable — missing Mapbox token.</div>
-        )}
+        <div ref={containerRef} style={{ position: "absolute", inset: 0 }} />
         <div className={styles.clock}>{fmtClock(t, data.startedAt)}</div>
       </div>
 

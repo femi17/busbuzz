@@ -2,8 +2,9 @@
 
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import type { Map as MapboxMap, Marker } from "mapbox-gl";
-import "mapbox-gl/dist/mapbox-gl.css";
+import type { Map as MapLibreMap, Marker } from "maplibre-gl";
+import "maplibre-gl/dist/maplibre-gl.css";
+import { OSM_STYLE } from "../../lib/osm";
 import styles from "../track.module.css";
 import { createClient } from "@/lib/supabase/client";
 
@@ -27,10 +28,9 @@ export default function PickupEditor({
   /** Whether `initial` is an already-saved pickup spot (vs a default). */
   hasSaved: boolean;
 }) {
-  const token = process.env.NEXT_PUBLIC_MAPBOX_TOKEN;
   const router = useRouter();
   const containerRef = useRef<HTMLDivElement | null>(null);
-  const mapRef = useRef<MapboxMap | null>(null);
+  const mapRef = useRef<MapLibreMap | null>(null);
   const markerRef = useRef<Marker | null>(null);
   const [dirty, setDirty] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -38,25 +38,25 @@ export default function PickupEditor({
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    if (!token || !containerRef.current) return;
+    if (!containerRef.current) return;
     let cancelled = false;
 
     (async () => {
-      const mapboxgl = (await import("mapbox-gl")).default;
+      const maplibregl = (await import("maplibre-gl")).default;
       if (cancelled || !containerRef.current) return;
-      mapboxgl.accessToken = token;
-      const map = new mapboxgl.Map({
+      const map = new maplibregl.Map({
         container: containerRef.current,
-        style: "mapbox://styles/mapbox/light-v11",
+        style: OSM_STYLE,
         center: initial,
         zoom: 15,
         attributionControl: false,
       });
+      map.addControl(new maplibregl.AttributionControl({ compact: true }), "bottom-right");
       mapRef.current = map;
 
       const el = document.createElement("div");
       el.className = styles.pickupPin;
-      const marker = new mapboxgl.Marker({ element: el, draggable: true })
+      const marker = new maplibregl.Marker({ element: el, draggable: true })
         .setLngLat(initial)
         .addTo(map);
       markerRef.current = marker;
@@ -77,7 +77,7 @@ export default function PickupEditor({
     // The editor is keyed by student in TrackLive — initial never changes
     // within one mount.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [token]);
+  }, []);
 
   function reset() {
     markerRef.current?.setLngLat(initial);
@@ -129,8 +129,6 @@ export default function PickupEditor({
       setSaving(false);
     }
   }
-
-  if (!token) return null;
 
   return (
     <div className={styles.pickup}>
