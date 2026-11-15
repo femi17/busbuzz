@@ -1,0 +1,23 @@
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+  <!--
+    Device Admin receiver for kiosk (Lock Task) mode. Inert until the device is
+    provisioned as Device Owner:
+      adb shell dpm set-device-owner com.busbuzz.driver/expo.modules.kiosk.BusBuzzDeviceAdminReceiver
+    Merged into the app manifest at build time via Expo autolinking, so it ships
+    in both app variants but only ever activates on a provisioned driver phone.
+  -->
+  <application>
+    <receiver
+      android:name="expo.modules.kiosk.BusBuzzDeviceAdminReceiver"
+      android:description="@string/app_name"
+      android:permission="android.permission.BIND_DEVICE_ADMIN"
+      android:exported="true">
+      <meta-data
+        android:name="android.app.device_admin"
+        android:resource="@xml/device_admin" />
+      <intent-filter>
+        <action android:name="android.app.action.DEVICE_ADMIN_ENABLED" />
+      </intent-filter>
+    </receiver>
+  </application>
+</manifest>

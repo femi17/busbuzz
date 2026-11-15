@@ -2,10 +2,12 @@ import { NavigationContainer } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import * as Notifications from 'expo-notifications';
 import { useEffect, useState } from 'react';
+import { AppState } from 'react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import type { Stop } from '../../../../shared/types';
+import { enterKiosk, isDeviceOwner, setKeepAwake } from '../../../modules/kiosk';
 import '../../lib/mapbox';
 import {
   configureForegroundNotifications,
@@ -105,6 +107,25 @@ export default function DriverApp() {
   const [isLoading, setIsLoading] = useState(true);
   const [initialRouteName, setInitialRouteName] =
     useState<keyof DriverStackParamList>('Login');
+
+  // Kiosk lock. Only engages on a phone provisioned as Device Owner (a real
+  // bus phone) — dev builds and the parent app no-op, so nothing can trap a
+  // developer's device. Re-asserted whenever the app returns to the
+  // foreground, in case anything ever knocks it out of lock task.
+  useEffect(() => {
+    if (!isDeviceOwner()) return;
+
+    const lock = () => {
+      enterKiosk();
+      setKeepAwake(true);
+    };
+    lock();
+
+    const sub = AppState.addEventListener('change', (next) => {
+      if (next === 'active') lock();
+    });
+    return () => sub.remove();
+  }, []);
 
   useEffect(() => {
     let isMounted = true;

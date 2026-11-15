@@ -22,6 +22,7 @@ import {
   RouteIcon,
   UsersIcon,
 } from './components/Icons';
+import { exitKiosk, isDeviceOwner } from '../../../modules/kiosk';
 import { AnimatedSplash } from './components/AnimatedSplash';
 import { ConfirmDialog } from './components/ConfirmDialog';
 import type { DriverStackParamList } from './DriverApp';
@@ -404,6 +405,9 @@ export default function TodayScreen({ navigation }: Props) {
   }
 
   const [showSosConfirm, setShowSosConfirm] = useState(false);
+  // Hidden maintenance escape from kiosk — reachable only by long-pressing the
+  // wordmark, and only on a phone that's actually locked (Device Owner).
+  const [showKioskExit, setShowKioskExit] = useState(false);
 
   async function sendSOS() {
     if (!state) return;
@@ -492,16 +496,35 @@ export default function TodayScreen({ navigation }: Props) {
         onCancel={() => setShowSosConfirm(false)}
         onConfirm={sendSOS}
       />
+      <ConfirmDialog
+        visible={showKioskExit}
+        title="Exit kiosk mode?"
+        message="This unlocks the phone for maintenance. The bus app stays set up — relaunching re-locks it."
+        confirmLabel="UNLOCK"
+        onCancel={() => setShowKioskExit(false)}
+        onConfirm={() => {
+          setShowKioskExit(false);
+          exitKiosk();
+        }}
+      />
       <SafeAreaView edges={['top']} style={styles.headerSafe}>
         <View style={styles.header}>
-          <View style={styles.brandRow}>
+          <Pressable
+            style={styles.brandRow}
+            // Invisible on normal phones — only a locked (Device Owner) phone
+            // opens the maintenance unlock prompt. 800ms so it's deliberate.
+            delayLongPress={800}
+            onLongPress={() => {
+              if (isDeviceOwner()) setShowKioskExit(true);
+            }}
+          >
             <View style={styles.logoCircle}>
               <Text style={styles.logoInitial}>{schoolInitial}</Text>
             </View>
             <Text style={styles.wordmark}>
               Bus<Text style={styles.wordmarkAccent}>Buzz</Text>
             </Text>
-          </View>
+          </Pressable>
           <View style={styles.headerActions}>
             {!state.activeTrip && (
               <Pressable

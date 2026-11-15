@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Policies this device-admin component may use. Lock Task itself is a
+  Device-Owner capability (not listed here); these cover the admin affordances a
+  managed bus phone realistically needs (force-lock, keyguard control).
+-->
+<device-admin xmlns:android="http://schemas.android.com/apk/res/android">
+  <uses-policies>
+    <force-lock />
+    <disable-keyguard-features />
+    <watch-login />
+  </uses-policies>
+</device-admin>

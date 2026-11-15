@@ -562,9 +562,9 @@ curl -X POST https://[DEV_PROJECT_REF].supabase.co/functions/v1/gps-update \
 
 # 2. Connect to laptop via USB
 
-# 3. Enable kiosk mode (Device Owner)
+# 3. Enable kiosk mode (Device Owner) — see mobile/KIOSK.md for the full runbook
 #    This locks the phone to ONLY run the BusBuzz driver app
-adb shell dpm set-device-owner com.busbuzz.driver/.AdminReceiver
+adb shell dpm set-device-owner com.busbuzz.driver/expo.modules.kiosk.BusBuzzDeviceAdminReceiver
 
 # 4. Install driver app
 eas build --platform android --profile driver

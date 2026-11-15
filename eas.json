@@ -13,6 +13,14 @@
     },
     "production": {
       "autoIncrement": true
+    },
+    "driver": {
+      "distribution": "internal",
+      "env": { "APP_VARIANT": "driver" }
+    },
+    "driver-prod": {
+      "autoIncrement": true,
+      "env": { "APP_VARIANT": "driver" }
     }
   },
   "submit": {
