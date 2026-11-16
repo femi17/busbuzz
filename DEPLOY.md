@@ -5,8 +5,9 @@
 As of 2026-10-11 BusBuzz runs on a **single Supabase project** — `busbuzz-dev`
 (`nmgvnoudmxrzqthnfxkk`). It serves everything: local dev, Vercel previews
 *and* production (busbuzz.com.ng, app.busbuzz.com.ng, admin.busbuzz.com.ng),
-and every EAS profile (`preview`/`driver` and `production*`/`driver-prod` —
-the prod profiles now point at dev too).
+and every EAS profile in `mobile/eas.json` (`preview`/`driver` and
+`production`/`production:driver` — the prod profiles now point at dev too).
+`mobile/eas.json` is the only EAS config; run `eas build` from `mobile/`.
 
 The old `busbuzz-prod` project (`cjjsjmelyfbpcnqfkgbc`) was retired — all
 Vercel env vars and `eas.json` were repointed to dev. The prod project is to

@@ -589,7 +589,7 @@ curl -X POST https://nmgvnoudmxrzqthnfxkk.supabase.co/functions/v1/gps-update \
 adb shell dpm set-device-owner com.busbuzz.driver/expo.modules.kiosk.BusBuzzDeviceAdminReceiver
 
 # 4. Install driver app
-eas build --platform android --profile driver
+cd mobile && eas build --platform android --profile driver   # mobile/eas.json is the only EAS config
 adb install busbuzz-driver.apk
 
 # 5. Phone will now boot directly into BusBuzz driver app

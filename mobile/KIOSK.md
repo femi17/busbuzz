@@ -24,13 +24,13 @@ No Play Store is involved — we own and provision the phones.
 
 ## 1. Build the driver APK
 
-A cloud EAS build needs the `APP_VARIANT=driver` profile (added to `eas.json`):
+A cloud EAS build needs the `APP_VARIANT=driver` profile (in `mobile/eas.json` — the only EAS config):
 
 ```bash
 cd mobile
 eas build -p android --profile driver        # installable internal APK
-# or, for a store-track/versioned build:
-eas build -p android --profile production:driver
+# or the production release (also an APK — kiosk phones are sideloaded, never Play Store):
+eas build -p android --profile production:driver   # = npm run build:driver:prod
 ```
 
 Push notifications also require FCM credentials on this (faceflyer) project —
