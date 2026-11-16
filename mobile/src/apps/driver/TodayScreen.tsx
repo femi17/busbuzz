@@ -29,6 +29,14 @@ import type { DriverStackParamList } from './DriverApp';
 import { startGPSBroadcast } from './gpsService';
 import { color, radius, space } from './theme';
 
+// Nigeria is UTC+1 all year (no DST), so derive the Lagos hour from UTC rather
+// than from the device clock — cheap kiosk phones are often on the wrong
+// timezone, which near noon would otherwise pick the wrong run. Matches how the
+// start-trip edge function resolves direction.
+function lagosHour(d: Date = new Date()): number {
+  return (d.getUTCHours() + 1) % 24;
+}
+
 type Props = NativeStackScreenProps<DriverStackParamList, 'Today'>;
 
 type StudentSummary = {
@@ -140,7 +148,7 @@ export default function TodayScreen({ navigation }: Props) {
         return;
       }
 
-      const isBeforeNoon = new Date().getHours() < 12;
+      const isBeforeNoon = lagosHour() < 12;
       const preferredType = isBeforeNoon ? 'MORNING' : 'AFTERNOON';
       const route =
         routes.find((r) => r.type === preferredType) ??
@@ -197,7 +205,7 @@ export default function TodayScreen({ navigation }: Props) {
         const dir =
           t.direction === 'MORNING' || t.direction === 'AFTERNOON'
             ? t.direction
-            : new Date(t.started_at).getHours() < 12
+            : lagosHour(new Date(t.started_at)) < 12
               ? 'MORNING'
               : 'AFTERNOON';
         if (dir === 'MORNING') morningDoneToday = true;
@@ -206,7 +214,7 @@ export default function TodayScreen({ navigation }: Props) {
 
       const { data: existingTrip, error: tripError } = await supabase
         .from('trips')
-        .select('id, bus_id, route_id, driver_id, status, started_at')
+        .select('id, bus_id, route_id, driver_id, status, started_at, direction')
         .eq('bus_id', bus.id)
         .eq('status', 'ACTIVE')
         .maybeSingle();
@@ -221,16 +229,21 @@ export default function TodayScreen({ navigation }: Props) {
 
       if (existingTrip) {
         // The active trip may be on a different route than today's preferred
-        // one — resolve its own route for name/type, and derive the run
-        // direction from when the trip started (a BOTH route runs twice).
+        // one — resolve its own route for name/type. The run direction is
+        // whatever start-trip already persisted on the trip; only fall back to
+        // the start hour for legacy rows where direction is null. Re-deriving
+        // it from the clock on resume (as before) could load the wrong run's
+        // students — e.g. an afternoon drop-off showing morning-only riders.
         const tripRoute =
           routes.find((r) => r.id === existingTrip.route_id) ?? route;
         const tripDirection: 'MORNING' | 'AFTERNOON' =
-          tripRoute.type === 'MORNING' || tripRoute.type === 'AFTERNOON'
-            ? tripRoute.type
-            : new Date(existingTrip.started_at).getHours() < 12
-              ? 'MORNING'
-              : 'AFTERNOON';
+          existingTrip.direction === 'MORNING' || existingTrip.direction === 'AFTERNOON'
+            ? existingTrip.direction
+            : tripRoute.type === 'MORNING' || tripRoute.type === 'AFTERNOON'
+              ? tripRoute.type
+              : lagosHour(new Date(existingTrip.started_at)) < 12
+                ? 'MORNING'
+                : 'AFTERNOON';
 
         const { data: stops } = await supabase
           .from('stops')
