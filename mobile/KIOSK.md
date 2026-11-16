@@ -30,7 +30,7 @@ A cloud EAS build needs the `APP_VARIANT=driver` profile (added to `eas.json`):
 cd mobile
 eas build -p android --profile driver        # installable internal APK
 # or, for a store-track/versioned build:
-eas build -p android --profile driver-prod
+eas build -p android --profile production:driver
 ```
 
 Push notifications also require FCM credentials on this (faceflyer) project —
