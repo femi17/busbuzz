@@ -1,6 +1,7 @@
 # BusBuzz — CLAUDE.md
 # Master context file. Read this at the start of every Claude Code session.
-# Last updated: reflects lean stack decisions — Supabase-first, no NestJS, no Traccar, no Cloudinary, no Termii at MVP. (One exception discovered post-launch: Android push requires a free Firebase project for FCM credentials — see Push Notification Flow.)
+# Last updated: 2026-11-16 — parents on the PWA (parent/), maps render on MapLibre + free OSM tiles (Mapbox = geocoding only, Google Maps removed), single Supabase project (busbuzz-dev = production).
+# Lean stack: Supabase-first, no NestJS, no Traccar, no Cloudinary, no Termii at MVP. (Native Android push still needs a free Firebase project for FCM credentials — see Push Notification Flow.)
 
 ---
 
@@ -12,7 +13,7 @@ BusBuzz is a school bus tracking platform for Lagos private schools.
 - BusBuzz owns cheap Android phones (Itel/Tecno, ~₦25,000–₦40,000 each), pre-configured in kiosk mode, mounted in each bus
 - The driver opens the BusBuzz Driver App (locked to this app only — kiosk mode), starts the trip, and marks each student as boarded or dropped off at each stop
 - The driver app broadcasts GPS location every 10 seconds via Expo's background location service
-- Parents track their child's bus in real time on the Parent App (React Native / Expo)
+- Parents track their child's bus in real time on the Parent PWA (`parent/`, Next.js — installable web app, no app store). The old native Expo parent app is legacy and no longer shipped
 - School admins manage everything from a web dashboard (Next.js)
 - BusBuzz manages the SIM data plans — schools pay a monthly subscription that covers device depreciation + data
 
@@ -32,24 +33,26 @@ BusBuzz is a school bus tracking platform for Lagos private schools.
 
 ```
 busbuzz/
-├── web/                        ← Next.js 14 (App Router) — School Admin + Super Admin dashboard
-├── mobile/                     ← Expo (React Native) — two apps from one codebase:
-│   ├── src/apps/parent/        ←   Parent app (track bus, notifications, history)
-│   └── src/apps/driver/        ←   Driver app (start trip, GPS broadcast, mark attendance)
+├── web/                        ← Next.js 16 (App Router) — School Admin + Super Admin dashboard (Vercel: busbuzz-web)
+├── parent/                     ← Next.js 16 PWA — the parent app (Vercel: busbuzz-parent). Standalone build:
+│                                  imports nothing from ../shared (parent/lib/geo.ts is a trimmed copy)
+├── mobile/                     ← Expo (React Native), npm workspace
+│   ├── src/apps/driver/        ←   Driver app (start trip, GPS broadcast, mark attendance) — native APK, kiosk mode
+│   └── src/apps/parent/        ←   LEGACY native parent app — superseded by parent/, not shipped
 ├── supabase/
-│   ├── functions/              ← Supabase Edge Functions (Deno) — all backend logic
-│   │   ├── gps-update/         ←   Receives GPS pings from driver app
-│   │   ├── start-trip/         ←   Driver starts a trip
-│   │   ├── end-trip/           ←   Driver ends a trip
-│   │   ├── mark-attendance/    ←   Driver marks student boarded/absent/dropped off
-│   │   ├── send-push/          ←   Sends Expo push notifications
-│   │   └── geofence-check/     ←   Called by gps-update; checks stop proximity
-│   └── migrations/             ← SQL migration files (managed by Supabase CLI)
+│   ├── functions/              ← Supabase Edge Functions (Deno) — all backend logic. Core ones:
+│   │   ├── gps-update/         ←   Receives GPS pings from driver app, calls geofence-check
+│   │   ├── start-trip/ end-trip/ mark-attendance/   ← driver trip lifecycle
+│   │   ├── send-push/          ←   Expo push (native) + Web Push (PWA)
+│   │   ├── driver-login/       ←   Phone + PIN → Supabase session
+│   │   └── manage-*/ get-*/ …  ←   Admin CRUD, reports, replay, SOS, absences — `ls supabase/functions`
+│   └── migrations/             ← SQL migration files — the source of truth for schema/RLS/grants
 ├── shared/
 │   ├── types.ts                ← All shared TypeScript interfaces
 │   ├── schemas.ts              ← All Zod validation schemas
 │   └── geo.ts                  ← Haversine distance util, ETA calculations
-└── .env.example                ← All environment variable names (values blank)
+├── scripts/                    ← Demo fleet / GPS simulator scripts (see scripts/DEMO.md)
+└── .env.example                ← Environment variable names (partly stale — trust the sections below)
 ```
 
 ---
@@ -63,11 +66,13 @@ busbuzz/
 | File storage | Supabase Storage | Free (1GB) | Student photos, bus images |
 | Real-time GPS | Supabase Realtime | Free (200 concurrent) | Channels keyed by busId |
 | API / backend | Supabase Edge Functions | Free (500k calls/mo) | Deno TypeScript, no server to manage |
-| Mobile (parent + driver) | React Native + Expo SDK 51 | Free | Single codebase, two app configs |
-| Mobile maps (parent app) | Mapbox (@rnmapbox/maps) | Free tier (50k loads/mo) then usage-based | Switched back from react-native-maps/Google Maps SDK for Android after persistent map-not-rendering issues tied to Google Cloud Console key/billing setup. Needs a native rebuild (not Expo Go) — requires both a public token (`EXPO_PUBLIC_MAPBOX_TOKEN`) and a secret downloads token (`RNMAPBOX_MAPS_DOWNLOAD_TOKEN`, build-time only) |
-| Web admin maps | Google Maps JavaScript API + Places | $200/mo free credit (~28k loads) | Only used in web dashboard — low load count. Web dashboard was on Mapbox before this, switched to Google for better Lagos coverage. Independent of the mobile maps choice above — the two don't need to match |
-| Push notifications | Expo Push Notification Service | Free | Delivers via FCM (Android) / APNS (iOS). Android standalone builds REQUIRE a free Firebase project: google-services.json in the build + FCM V1 service account key uploaded to EAS credentials. Without it, getExpoPushTokenAsync() throws and pushes silently never deliver |
-| Web hosting | Vercel | Free | Next.js deploys in seconds |
+| Parent app | Next.js 16 PWA (`parent/`) on Vercel | Free | Email OTP login, Web Push, installable. Replaced the native parent app (no app-store fees, instant updates) |
+| Driver app | React Native + Expo SDK 56 | Free | Native Android APK only (kiosk mode + background GPS). No `expo-updates` — every driver change needs a new `eas build` installed on each bus phone |
+| Map rendering (web + parent PWA) | MapLibre GL JS + free OpenStreetMap raster tiles | $0, no token | Shared styles in `web/lib/osm.ts` / `parent/lib/osm.ts`. Add a compact AttributionControl (OSM policy). Coordinates are `[lng, lat]` |
+| Geocoding / address search | Mapbox Geocoding API | Free tier | Mapbox for accuracy on Nigerian streets; OSM is only used to render. Web: `web/lib/mapbox-geocode.ts` (`NEXT_PUBLIC_MAPBOX_TOKEN`). Edge functions (manage-school/manage-student) use a baked-in pk. token, `MAPBOX_TOKEN` secret overrides |
+| Driver app map | Mapbox (`@rnmapbox/maps`) | Free tier | Deliberately left on Mapbox (one map on a handful of phones). Moving to `@maplibre/maplibre-react-native` is a real API rewrite — deferred until it can be tested on a device. Driver also uses Mapbox Directions for road routing. Needs `EXPO_PUBLIC_MAPBOX_TOKEN` + build-time `RNMAPBOX_MAPS_DOWNLOAD_TOKEN` |
+| Push notifications | Web Push (PWA parents) + Expo Push (native driver) | Free | send-push delivers to both. Web Push: VAPID keys, `web_push_subscriptions` table. Expo push rides on FCM — native Android builds need google-services.json + FCM V1 key in EAS (already configured on the faceflyer EAS account) |
+| Web hosting | Vercel | Free | busbuzz-web (admin) + busbuzz-parent (PWA) |
 | Driver GPS | expo-location (background) | Free | Built into Expo — no hardware needed |
 | Device management | Android Kiosk Mode (Device Owner) | Free | One ADB command per device locks phone to driver app only |
 
@@ -82,16 +87,25 @@ busbuzz/
 ```
 NEXT_PUBLIC_SUPABASE_URL=           # From Supabase → Settings → API → Project URL
 NEXT_PUBLIC_SUPABASE_ANON_KEY=      # From Supabase → Settings → API → anon public key
-NEXT_PUBLIC_GOOGLEMAP_TOKEN=        # From Google Cloud Console → Credentials (Maps JavaScript API + Places API, for web admin map)
+NEXT_PUBLIC_MAPBOX_TOKEN=           # Mapbox public pk. token — geocoding/address autocomplete only (maps render on OSM)
 SUPABASE_SERVICE_ROLE_KEY=          # From Supabase → Settings → API → service_role (server only, never expose to client)
 ```
 
-### mobile/.env
+### parent/.env.local
+```
+NEXT_PUBLIC_SUPABASE_URL=           # Same as web
+NEXT_PUBLIC_SUPABASE_ANON_KEY=      # Same as web
+NEXT_PUBLIC_VAPID_PUBLIC_KEY=       # Web Push public key; private JWK lives in the service-role-only app_secrets table
+```
+
+### mobile/.env (driver app)
 ```
 EXPO_PUBLIC_SUPABASE_URL=           # Same as web SUPABASE_URL
 EXPO_PUBLIC_SUPABASE_ANON_KEY=      # Same as web SUPABASE_ANON_KEY
 EXPO_PUBLIC_GPS_INTERVAL_MS=10000   # GPS broadcast interval (10 seconds)
 EXPO_PUBLIC_GEOFENCE_RADIUS_M=300   # Metres from stop to trigger approach alert
+EXPO_PUBLIC_MAPBOX_TOKEN=           # Driver map tiles + Directions routing
+RNMAPBOX_MAPS_DOWNLOAD_TOKEN=       # Mapbox secret downloads token — build time only
 ```
 
 ### supabase/functions/.env (set in Supabase dashboard → Edge Functions → Secrets)
@@ -102,15 +116,17 @@ EXPO_PUSH_URL=https://exp.host/--/api/v2/push/send
 INTERNAL_FUNCTION_SECRET=           # Shared secret for function-to-function calls (send-push)
 # Server-side geocoding (school addresses, student pickup addresses) uses the
 # Mapbox Geocoding API with the public pk. token baked into the functions
-# (MAPBOX_TOKEN env overrides it) — no Google server key needed. The web
-# dashboard's map still uses NEXT_PUBLIC_GOOGLEMAP_TOKEN client-side.
+# (MAPBOX_TOKEN env overrides it) — no Google key anywhere.
+RESEND_API_KEY=                     # compute-ontime-award emails (separate from Auth SMTP)
 ```
 
 ---
 
 ## Database Schema
 
-All migrations live in `supabase/migrations/`. Use `supabase db push` to apply.
+All migrations live in `supabase/migrations/` and are applied manually (see "Database migrations" below) — never blind `supabase db push`, the only database is production.
+
+**The SQL below is the original baseline only.** The live schema has moved on — e.g. `buses.driver_id`, `trips.direction`, `students.trip_type`/`pickup_sequence`, and the `push_tokens` table replacing `profiles.expo_push_token`. Tables added since: `push_tokens`, `push_receipts`, `web_push_subscriptions`, `app_secrets`, `notifications`, `trip_summaries`, `trip_stop_triggers`, `trip_stop_approaches`, `student_absences`, `driver_pins`, `driver_login_attempts`, `semester_awards`, `function_run_state`. Check the migrations (or MCP `list_tables`) before relying on a column. The Shared Types block further down has the same caveat.
 
 ```sql
 -- ENUMS
@@ -255,19 +271,19 @@ Full RLS policy SQL lives in `supabase/migrations/02_rls_policies.sql`.
 
 ## Key Architectural Flows
 
-### GPS Flow (Driver Phone → Parent App)
+### GPS Flow (Driver Phone → Parent PWA)
 ```
 Driver App (Expo, background location)
   → every 10 seconds: POST supabase/functions/v1/gps-update
       body: { tripId, busId, lat, lng, speed, timestamp, deviceId }
     → Edge Function validates deviceId matches bus record
     → Inserts row into trip_locations
-    → Broadcasts via Supabase Realtime channel `bus:{busId}`:
+    → Broadcasts (server-side, Realtime REST /realtime/v1/api/broadcast) on channel `bus:{busId}`:
         { lat, lng, speed, timestamp }
     → Calls geofence-check function
 
-Parent App
-  → subscribed to Supabase Realtime channel `bus:{busId}` on trip start
+Parent PWA
+  → subscribed to PRIVATE Supabase Realtime channel `bus:{busId}` (private: true) on trip start
   → receives broadcast → updates map marker position
 ```
 
@@ -280,7 +296,7 @@ geofence-check Edge Function
   → if distance < 300m AND stop not yet triggered this trip:
       → marks stop as triggered (update stop_trigger record)
       → calls send-push function for all parents at that stop
-          → Expo Push API: "Bus is 2 minutes away from [Stop Name]"
+          → Web Push / Expo push: "Bus is 2 minutes away from [Stop Name]"
 ```
 
 ### Attendance Flow
@@ -298,9 +314,11 @@ Driver marks student at stop (taps BOARDED / ABSENT)
 ### Auth Flow
 ```
 Parents:
-  → Enter email in parent app
-  → Supabase Auth sends magic link / OTP to email (free, no SMS gateway)
-  → Tap link → session created → JWT issued by Supabase automatically
+  → Enter email in the parent PWA
+  → Supabase Auth emails a 6-digit OTP code (free, no SMS gateway)
+  → Parent types the code → verifyOtp → session + JWT
+  → Requires a confirmed account (manage-student creates parents with email_confirm: true)
+    and the Magic Link email template must include {{ .Token }}
 
 School Admins:
   → Email + password login via Supabase Auth
@@ -316,16 +334,17 @@ Drivers:
 ### Push Notification Flow
 ```
 send-push Edge Function
-  → receives { userIds[], title, body, data }
-  → looks up expo_push_token for each userId from profiles table
-  → POST https://exp.host/--/api/v2/push/send
-      body: [{ to: expoPushToken, title, body, data }]
-  → Expo service delivers to Android (via FCM) and iOS (via APNS) for free
+  → receives { userIds[], title, body, data }   (requires X-Internal-Secret header)
+  → PWA parents: Web Push to each row in web_push_subscriptions (VAPID; prunes 404/410)
+  → Native (driver): Expo tokens from the push_tokens table (one row per device) → POST https://exp.host/--/api/v2/push/send
+      → Expo delivers via FCM (Android)
 ```
 
-**Android FCM setup (one-time, required — pushes silently fail without it):**
+Note: gps-update silently skips geofence pushes if `INTERNAL_FUNCTION_SECRET` is unset.
+
+**Android FCM setup (native builds only — already done on the faceflyer EAS account; reference only):**
 1. Create a free Firebase project (no billing) at console.firebase.google.com
-2. Add BOTH Android apps to it: `com.busbuzz.parent` and `com.busbuzz.driver`
+2. Add the Android app `com.busbuzz.driver` (plus `com.busbuzz.parent` only if the legacy native parent app is ever built again)
 3. Download the combined `google-services.json` → place at `mobile/google-services.json`
    (gitignored — repo is public; for EAS builds store it as a file-type env var
    named `GOOGLE_SERVICES_JSON` instead: `eas env:create --scope project --name
@@ -341,9 +360,10 @@ send-push Edge Function
 ## Supabase Realtime Channel Structure
 
 ```
-Channel naming: bus:{busId}
+Channel naming: bus:{busId}   — PRIVATE channels (Realtime Authorization):
+  clients must subscribe with { config: { private: true } }; scripts/simulators need the service key
 
-Driver app broadcasts to:       bus:{busId}
+Broadcaster:                    gps-update edge function (server-side, on each driver ping)
 Parent app subscribes to:       bus:{busId}   (for their child's bus)
 Admin web subscribes to:        bus:{busId}   (for all school buses — admin overview)
 
@@ -358,6 +378,8 @@ Presence (optional, Phase 2):
 ---
 
 ## Shared Types (shared/types.ts)
+
+Baseline snapshot — `shared/types.ts` itself is the source of truth.
 
 ```typescript
 export type UserRole = 'SUPER_ADMIN' | 'SCHOOL_ADMIN' | 'PARENT' | 'DRIVER'
@@ -473,8 +495,10 @@ export interface ApiResponse<T> {
 - Mobile: functional components, hooks for all state, no class components
 - Web: Server Components for data fetching, Client Components only where interactivity needed
 - Zod validates all inputs before any DB operation — schemas live in shared/schemas.ts
-- Maps on mobile: `@rnmapbox/maps` only (react-native-maps/Google Maps SDK for Android was dropped — see tech stack table)
-- Maps on web: Google Maps JavaScript API + Places library only (low load count in admin dashboard)
+- Maps on web + parent PWA: `maplibre-gl` + OSM tiles for rendering; Mapbox only for geocoding. No Google Maps anywhere
+- Maps on driver app: `@rnmapbox/maps` (see tech stack table)
+- New `SECURITY DEFINER` functions: revoke EXECUTE from PUBLIC and grant only to the roles that need it — Postgres gives PUBLIC execute by default (see migration `…_lock_privileged_rpc_to_service_role.sql`)
+- Editing `shared/` doesn't update deployed Edge Functions — redeploy every function that imports it
 - Never log sensitive data (tokens, emails) — console.log allowed in development only
 
 ---
@@ -490,32 +514,35 @@ Never run `supabase start` — it requires Docker and is not part of this workfl
   profiles). There is no longer a separate prod database.
 - The old `busbuzz-prod` (`cjjsjmelyfbpcnqfkgbc`) was retired and is being
   deleted. Do not recreate a prod project or point anything back at one.
+- **busbuzz-dev IS production.** Any migration, `execute_sql`, secret change or
+  function deploy hits live schools immediately. Treat the "dev" name as a label only.
+- Prefer the Supabase MCP tools (connected to the busbuzz account) for SQL,
+  migrations and deploys; the local `supabase` CLI login is often stale.
 
 ### Prerequisites
 ```bash
-npm install -g pnpm
 npm install -g supabase
-npm install -g expo-cli
+npm install -g eas-cli
 ```
 
 ### First-time project setup
 ```bash
-# Install all dependencies
-pnpm install
+# Install dependencies (npm workspaces: web + mobile; parent/ installs on its own)
+npm install
+cd parent && npm install
 
-# Link CLI to your dev Supabase project
+# Link CLI to the Supabase project
 supabase login
-supabase link --project-ref [your-busbuzz-dev-project-ref]
-# Find your project ref: Supabase dashboard → Project Settings → General → Reference ID
+supabase link --project-ref nmgvnoudmxrzqthnfxkk
 ```
 
 ### Running the apps
 ```bash
-# Web admin dashboard
-cd web && pnpm dev             # runs on localhost:3000
-
-# Mobile apps (parent + driver)
-cd mobile && pnpm start        # Expo dev server — scan QR with Expo Go on your phone
+cd web && npm run dev          # Admin dashboard
+cd parent && npm run dev       # Parent PWA
+cd mobile && npm run start:driver   # Driver app (sets APP_VARIANT=driver; plain `npm start` = legacy parent variant).
+                                    # @rnmapbox needs a dev build, not Expo Go. In PowerShell the inline
+                                    # VAR=x syntax fails — use Git Bash or set $env:APP_VARIANT='driver' first
 ```
 
 ### Database migrations — MANUAL PROCESS
@@ -528,26 +555,21 @@ To apply a migration:
 3. Paste and run each block in order
 4. Confirm success before continuing
 
-To push all migrations to prod when ready:
-```bash
-supabase link --project-ref [your-busbuzz-PROD-project-ref]
-supabase db push
-supabase link --project-ref [your-busbuzz-DEV-project-ref]  # switch back to dev
-```
+(Or apply directly via the Supabase MCP `apply_migration`.) There is no separate
+prod database to push to: once applied here, it is live.
 
 ### Deploying Edge Functions
 ```bash
-# Deploy a single function to dev
-supabase functions deploy [function-name] --project-ref [dev-project-ref]
-
-# Deploy all functions to prod
-supabase functions deploy --project-ref [prod-project-ref]
+# Deploys straight to production (the only project)
+supabase functions deploy [function-name] --project-ref nmgvnoudmxrzqthnfxkk --use-api
 ```
+If deploying through the MCP `deploy_edge_function`, pass full file paths plus
+deno.json/import map, and inline any `shared/` imports.
 
 ### Testing GPS without a bus
-Use the Supabase dashboard API tester or curl against your cloud dev URL:
+Use the demo fleet scripts in `scripts/` (see scripts/DEMO.md) or curl:
 ```bash
-curl -X POST https://[DEV_PROJECT_REF].supabase.co/functions/v1/gps-update \
+curl -X POST https://nmgvnoudmxrzqthnfxkk.supabase.co/functions/v1/gps-update \
   -H "Content-Type: application/json" \
   -H "Authorization: Bearer [driver-jwt-from-supabase-auth]" \
   -d '{"tripId":"test-trip","busId":"test-bus","lat":6.5244,"lng":3.3792,"speed":35,"timestamp":"2024-01-15T08:30:00Z","deviceId":"test-device"}'
@@ -589,14 +611,14 @@ adb install busbuzz-driver.apk
 | >500k Edge Function calls/month | Upgrade Supabase to Pro (included) |
 | >1GB file storage | Upgrade Supabase to Pro (8GB included) |
 | >10 schools / 500+ buses | Consider splitting schools across Supabase projects for Realtime isolation |
-| Web maps billing | Google Maps JS API — web dashboard only now, has the full $200/mo free credit (~28k loads) to itself since mobile moved off Google Maps. Monitor in Google Cloud Console |
-| Mobile maps billing | Mapbox free tier covers 50k map loads/mo. Monitor in the Mapbox account dashboard, not Google Cloud Console |
+| Map tiles (web + PWA) | Free OSM tiles — respect the OSM tile usage policy; if parent traffic grows large, move to a hosted OSM/vector tile provider |
+| Mapbox billing | Geocoding + the driver app map/directions only — low volume. Monitor in the Mapbox account dashboard |
 
 ---
 
 ## UI/UX Design Direction
 
-For any UI/UX work on the web admin dashboard (`web/`) or mobile apps (`mobile/src/apps/parent`, `mobile/src/apps/driver`), invoke the `frontend-design` skill before designing or redesigning screens. Treat the brief as: a distinctive visual identity grounded in BusBuzz's actual subject matter (Lagos school runs, bus routes, parent peace-of-mind, driver workflow) — not a generic SaaS dashboard or templated AI-generated look.
+For any UI/UX work on the web admin dashboard (`web/`), the parent PWA (`parent/`) or the driver app (`mobile/src/apps/driver`), invoke the `frontend-design` skill before designing or redesigning screens. Treat the brief as: a distinctive visual identity grounded in BusBuzz's actual subject matter (Lagos school runs, bus routes, parent peace-of-mind, driver workflow) — not a generic SaaS dashboard or templated AI-generated look.
 
 Constraints specific to this product:
 - **Driver app** runs on cheap kiosk-mode Android phones mounted on a dashboard — UI must be high-contrast, large-touch-target, usable in sunlight glare and with one thumb while semi-distracted. Minimal cognitive load: start trip, mark attendance, end trip.
